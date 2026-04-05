@@ -170,7 +170,12 @@ fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
 
             if brace_depth <= 0 && bracket_depth <= 0 {
                 in_json_block = false;
-                emit_json_or_passthrough(&json_buf, &mut out);
+                let encoded = try_encode_json(json_buf.trim().as_bytes());
+                let text = encoded.as_deref().unwrap_or(&json_buf);
+                if let Err(e) = writeln!(out, "{}", text) {
+                    eprintln!("etoon: write error: {}", e);
+                    return ExitCode::FAILURE;
+                }
                 json_buf.clear();
                 brace_depth = 0;
                 bracket_depth = 0;
@@ -181,8 +186,11 @@ fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
         let trimmed = line.trim_start();
 
         if trimmed.starts_with('{') || looks_like_json_array(trimmed) {
-            if try_encode_json(trimmed.as_bytes()).is_some() {
-                emit_json_or_passthrough(trimmed, &mut out);
+            if let Some(encoded) = try_encode_json(trimmed.as_bytes()) {
+                if let Err(e) = writeln!(out, "{}", encoded) {
+                    eprintln!("etoon: write error: {}", e);
+                    return ExitCode::FAILURE;
+                }
             } else {
                 in_json_block = true;
                 json_buf.clear();
@@ -194,11 +202,17 @@ fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
             continue;
         }
 
-        let _ = writeln!(out, "{}", line);
+        if let Err(e) = writeln!(out, "{}", line) {
+            eprintln!("etoon: write error: {}", e);
+            return ExitCode::FAILURE;
+        }
     }
 
     if !json_buf.is_empty() {
-        let _ = writeln!(out, "{}", json_buf);
+        if let Err(e) = writeln!(out, "{}", json_buf) {
+            eprintln!("etoon: write error: {}", e);
+            return ExitCode::FAILURE;
+        }
     }
 
     ExitCode::SUCCESS
@@ -206,17 +220,6 @@ fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
 
 fn try_encode_json(bytes: &[u8]) -> Option<String> {
     _etoon::toon::encode(bytes).ok()
-}
-
-fn emit_json_or_passthrough(text: &str, out: &mut Box<dyn Write>) {
-    match try_encode_json(text.trim().as_bytes()) {
-        Some(toon) => {
-            let _ = writeln!(out, "{}", toon);
-        }
-        None => {
-            let _ = writeln!(out, "{}", text);
-        }
-    }
 }
 
 /// Distinguish JSON array `[{...}]` / `[1,2]` from log prefixes like `[request-id]`.
@@ -230,7 +233,8 @@ fn looks_like_json_array(trimmed: &str) -> bool {
     if let Some(close_pos) = trimmed.find(']') {
         let after_close = trimmed[close_pos + 1..].trim_start();
         // `[something] more text` → log prefix, not JSON
-        if !after_close.is_empty() && !after_close.starts_with(',') && !after_close.starts_with(']') {
+        if !after_close.is_empty() && !after_close.starts_with(',') && !after_close.starts_with(']')
+        {
             return false;
         }
     }
@@ -239,7 +243,10 @@ fn looks_like_json_array(trimmed: &str) -> bool {
         return true; // `[` alone on a line → likely multi-line array
     }
     let first = after_bracket.as_bytes()[0];
-    matches!(first, b'{' | b'[' | b'"' | b'0'..=b'9' | b'-' | b't' | b'f' | b'n' | b']')
+    matches!(
+        first,
+        b'{' | b'[' | b'"' | b'0'..=b'9' | b'-' | b't' | b'f' | b'n' | b']'
+    )
 }
 
 fn update_depths(line: &str, brace_depth: &mut i32, bracket_depth: &mut i32) {
