@@ -22,6 +22,8 @@ SUPPORTED_FIXTURES = {
     "arrays-objects.json",
     "arrays-nested.json",
     "whitespace.json",
+    "delimiters.json",
+    "key-folding.json",
 }
 
 
@@ -32,20 +34,29 @@ def _collect_cases():
             continue
         data = orjson.loads(fixture_file.read_bytes())
         for test in data["tests"]:
+            opts = test.get("options") or {}
             # Skip tests requiring non-default indent; we hardcode 2-space.
-            if (test.get("options") or {}).get("indent", 2) != 2:
+            if opts.get("indent", 2) != 2:
                 continue
+            kwargs = {}
+            if "delimiter" in opts:
+                kwargs["delimiter"] = opts["delimiter"]
+            if opts.get("keyFolding") == "safe":
+                kwargs["fold_keys"] = True
+                if "flattenDepth" in opts:
+                    kwargs["flatten_depth"] = opts["flattenDepth"]
             cases.append(
                 pytest.param(
                     test["input"],
                     test["expected"],
+                    kwargs,
                     id=f"{fixture_file.stem}::{test['name']}",
                 )
             )
     return cases
 
 
-@pytest.mark.parametrize("payload,expected", _collect_cases())
-def test_encode_matches_spec(payload, expected):
-    got = etoon.dumps(payload)
+@pytest.mark.parametrize("payload,expected,kwargs", _collect_cases())
+def test_encode_matches_spec(payload, expected, kwargs):
+    got = etoon.dumps(payload, **kwargs)
     assert got == expected

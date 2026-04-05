@@ -85,12 +85,22 @@ TypeScript SDK **byte-identical**。通過 **111/111** TOON spec fixtures
 涵蓋 primitives、objects、arrays（primitive/tabular/nested/bulleted）、
 whitespace。
 
+## 進階選項
+
+```python
+# 自訂分隔符（資料含逗號時可省 token）
+etoon.dumps(data, delimiter="|")   # 或 "\t"
+
+# Key folding：壓扁 {a:{b:{c:1}}} → "a.b.c: 1"
+etoon.dumps(data, fold_keys=True)
+etoon.dumps(data, fold_keys=True, flatten_depth=2)  # 部分 fold
+```
+
 ## 限制
 
 - 超過 2⁶³ 的整數會被降為 f64（多數能整數表示的 1e20 等仍可來回，
   但任意精度不支援）。
 - `indent` 固定 2 spaces（TOON spec 預設）。
-- TOON 進階功能未支援：`--fold-keys`、`--delimiter tab/pipe`。
 
 ## 授權
 

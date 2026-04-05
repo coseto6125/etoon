@@ -1,34 +1,67 @@
 //! TOON encoder core (sonic-rs backend).
 //!
 //! Input: JSON bytes (from orjson.dumps on Python side).
-//! Output: TOON string, byte-identical to `toons.dumps()` for standard JSON payloads.
+//! Output: TOON string, byte-identical to `toons.dumps()` + TOON spec v1.5.
 
 use sonic_rs::{Array, JsonContainerTrait, JsonType, JsonValueTrait, Object, Value};
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
+/// Encoder configuration matching TOON spec v1.5 options.
+#[derive(Clone, Copy)]
+pub struct Config {
+    /// Delimiter between array/tabular values. Must be `,`, `\t`, or `|`.
+    pub delimiter: u8,
+    /// If true, fold single-key object chains into dot-notation keys (safe mode).
+    pub key_folding: bool,
+    /// Max fold depth (segments). None = unlimited. 0 disables folding.
+    pub flatten_depth: Option<usize>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            delimiter: b',',
+            key_folding: false,
+            flatten_depth: None,
+        }
+    }
+}
+
 pub fn encode(json_bytes: &[u8]) -> Result<String, String> {
+    encode_with(json_bytes, &Config::default())
+}
+
+pub fn encode_with(json_bytes: &[u8], cfg: &Config) -> Result<String, String> {
     let value: Value =
         sonic_rs::from_slice(json_bytes).map_err(|e| format!("JSON parse error: {}", e))?;
-    // TOON output is always ≤ input JSON size; use input.len() as a safe upper bound.
     let mut out = String::with_capacity(json_bytes.len());
-    write_root(&value, &mut out);
+    write_root(&value, cfg, &mut out);
     Ok(out)
 }
 
-fn write_root(v: &Value, out: &mut String) {
+fn write_root(v: &Value, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let m = v.as_object().unwrap();
             if !m.is_empty() {
-                write_object_body(m, 0, out);
+                // Key folding applies only at the top-level object, per TOON spec v1.5.
+                write_object_body(m, 0, cfg, cfg.key_folding, out);
             }
         }
-        JsonType::Array => write_array_suffix(v.as_array().unwrap(), 0, out),
-        _ => write_scalar(v, out),
+        JsonType::Array => write_array_suffix(v.as_array().unwrap(), 0, cfg, out),
+        _ => write_scalar(v, cfg, out),
     }
 }
 
-fn write_object_body(m: &Object, indent: usize, out: &mut String) {
+fn write_object_body(m: &Object, indent: usize, cfg: &Config, allow_fold: bool, out: &mut String) {
+    // Collect literal sibling keys only when folding at this level.
+    let siblings: Option<HashSet<&str>> = if allow_fold {
+        Some(m.iter().map(|(k, _)| k).collect())
+    } else {
+        None
+    };
+
     let mut first = true;
     for (k, v) in m.iter() {
         if !first {
@@ -36,19 +69,86 @@ fn write_object_body(m: &Object, indent: usize, out: &mut String) {
         }
         first = false;
         write_indent(indent, out);
-        write_key_value(k, v, indent, out);
+
+        if let Some(ref sibs) = siblings {
+            if let Some((path, final_v)) = try_fold(k, v, cfg, sibs) {
+                for (i, seg) in path.iter().enumerate() {
+                    if i > 0 {
+                        out.push('.');
+                    }
+                    out.push_str(seg);
+                }
+                write_value_after_key(final_v, indent, cfg, out);
+                continue;
+            }
+        }
+
+        write_key(k, cfg, out);
+        write_value_after_key(v, indent, cfg, out);
     }
 }
 
-fn write_key_value(k: &str, v: &Value, indent: usize, out: &mut String) {
-    write_key(k, out);
-    write_value_after_key(v, indent, out);
+/// Attempt to build a folded chain starting at (k, v).
+/// Returns `Some((path, final_value))` if fold is viable (chain length ≥ 2,
+/// all segments don't need quoting, within flatten_depth, no collision).
+fn try_fold<'a>(
+    k: &'a str,
+    v: &'a Value,
+    cfg: &Config,
+    siblings: &HashSet<&str>,
+) -> Option<(Vec<&'a str>, &'a Value)> {
+    // flatten_depth of 0 or 1 means no practical folding (need ≥2 segments).
+    let max_depth = cfg.flatten_depth.unwrap_or(usize::MAX);
+    if max_depth < 2 {
+        return None;
+    }
+
+    // Key segment must not need quoting (safe mode).
+    if needs_quoting(k, true, cfg.delimiter) {
+        return None;
+    }
+
+    // First value must be a non-empty single-key object for chain to start.
+    let mut cur_v = v;
+    let mut path: Vec<&'a str> = vec![k];
+
+    loop {
+        if path.len() >= max_depth {
+            break;
+        }
+        let obj = match cur_v.get_type() {
+            JsonType::Object => cur_v.as_object().unwrap(),
+            _ => break,
+        };
+        if obj.len() != 1 {
+            break;
+        }
+        let (nk, nv) = obj.iter().next().unwrap();
+        if needs_quoting(nk, true, cfg.delimiter) {
+            // Cannot fold past a segment requiring quotes (safe mode).
+            break;
+        }
+        path.push(nk);
+        cur_v = nv;
+    }
+
+    if path.len() < 2 {
+        return None;
+    }
+
+    // Collision check: verify folded path doesn't match any literal sibling key.
+    let joined: String = path.join(".");
+    for &s in siblings {
+        if s != k && s == joined.as_str() {
+            return None;
+        }
+    }
+
+    Some((path, cur_v))
 }
 
 /// Write the ": value" or ":\n<body>" tail after a key at `key_indent`.
-/// Child object bodies go at `key_indent + 1`; array rows go at `key_indent + 1`
-/// (via write_array_suffix's internal `+ 1`).
-fn write_value_after_key(v: &Value, key_indent: usize, out: &mut String) {
+fn write_value_after_key(v: &Value, key_indent: usize, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let child = v.as_object().unwrap();
@@ -56,19 +156,24 @@ fn write_value_after_key(v: &Value, key_indent: usize, out: &mut String) {
                 out.push(':');
             } else {
                 out.push_str(":\n");
-                write_object_body(child, key_indent + 1, out);
+                // Nested object bodies never re-apply key folding (TOON spec: top-level only).
+                write_object_body(child, key_indent + 1, cfg, false, out);
             }
         }
-        JsonType::Array => write_array_suffix(v.as_array().unwrap(), key_indent, out),
+        JsonType::Array => write_array_suffix(v.as_array().unwrap(), key_indent, cfg, out),
         _ => {
             out.push_str(": ");
-            write_scalar(v, out);
+            write_scalar(v, cfg, out);
         }
     }
 }
 
-fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
-    write!(out, "[{}]", arr.len()).unwrap();
+fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String) {
+    write!(out, "[{}", arr.len()).unwrap();
+    if cfg.delimiter != b',' {
+        out.push(cfg.delimiter as char);
+    }
+    out.push(']');
 
     if arr.is_empty() {
         out.push(':');
@@ -80,10 +185,10 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
         let mut first = true;
         for v in arr.iter() {
             if !first {
-                out.push(',');
+                out.push(cfg.delimiter as char);
             }
             first = false;
-            write_scalar(v, out);
+            write_scalar(v, cfg, out);
         }
         return;
     }
@@ -92,14 +197,12 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
         out.push('{');
         for (i, k) in keys.iter().enumerate() {
             if i > 0 {
-                out.push(',');
+                out.push(cfg.delimiter as char);
             }
-            write_key(k, out);
+            write_key(k, cfg, out);
         }
         out.push_str("}:");
         if uniform_order {
-            // Fast path: all rows have keys in the same order as header.
-            // Iterate sequentially, no key lookups.
             for item in arr.iter() {
                 let m = item.as_object().unwrap();
                 out.push('\n');
@@ -107,14 +210,13 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
                 let mut first = true;
                 for (_, v) in m.iter() {
                     if !first {
-                        out.push(',');
+                        out.push(cfg.delimiter as char);
                     }
                     first = false;
-                    write_scalar(v, out);
+                    write_scalar(v, cfg, out);
                 }
             }
         } else {
-            // Slow path: row orders differ, lookup per key.
             for item in arr.iter() {
                 let m = item.as_object().unwrap();
                 out.push('\n');
@@ -122,10 +224,10 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
                 let mut first = true;
                 for k in &keys {
                     if !first {
-                        out.push(',');
+                        out.push(cfg.delimiter as char);
                     }
                     first = false;
-                    write_scalar(m.get(k).unwrap(), out);
+                    write_scalar(m.get(k).unwrap(), cfg, out);
                 }
             }
         }
@@ -137,31 +239,31 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
         out.push('\n');
         write_indent(indent + 1, out);
         out.push('-');
-        write_list_item(item, indent + 1, out);
+        write_list_item(item, indent + 1, cfg, out);
     }
 }
 
-fn write_list_item(v: &Value, l: usize, out: &mut String) {
+fn write_list_item(v: &Value, l: usize, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let m = v.as_object().unwrap();
             if !m.is_empty() {
                 out.push(' ');
-                write_list_item_object(m, l, out);
+                write_list_item_object(m, l, cfg, out);
             }
         }
         JsonType::Array => {
             out.push(' ');
-            write_array_suffix(v.as_array().unwrap(), l, out);
+            write_array_suffix(v.as_array().unwrap(), l, cfg, out);
         }
         _ => {
             out.push(' ');
-            write_scalar(v, out);
+            write_scalar(v, cfg, out);
         }
     }
 }
 
-fn write_list_item_object(m: &Object, l: usize, out: &mut String) {
+fn write_list_item_object(m: &Object, l: usize, cfg: &Config, out: &mut String) {
     let mut first = true;
     for (k, v) in m.iter() {
         if !first {
@@ -169,9 +271,8 @@ fn write_list_item_object(m: &Object, l: usize, out: &mut String) {
             write_indent(l + 1, out);
         }
         first = false;
-        write_key(k, out);
-        // List-item's first key sits at virtual indent l+1, so pass l+1 as key_indent.
-        write_value_after_key(v, l + 1, out);
+        write_key(k, cfg, out);
+        write_value_after_key(v, l + 1, cfg, out);
     }
 }
 
@@ -206,8 +307,6 @@ fn is_scalar(v: &Value) -> bool {
 }
 
 /// Return ordered keys + order-uniformity flag if array is tabular-eligible.
-/// `uniform_order = true` means every row has keys in the exact same order as the header,
-/// allowing sequential iteration without key lookups.
 fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
     let first_v = arr.iter().next()?;
     let first = first_v.as_object()?;
@@ -250,7 +349,7 @@ fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
 
 // ==================== Scalar ====================
 
-fn write_scalar(v: &Value, out: &mut String) {
+fn write_scalar(v: &Value, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Null => out.push_str("null"),
         JsonType::Boolean => out.push_str(if v.as_bool().unwrap() {
@@ -259,7 +358,7 @@ fn write_scalar(v: &Value, out: &mut String) {
             "false"
         }),
         JsonType::Number => write_number(v, out),
-        JsonType::String => write_string_value(v.as_str().unwrap(), out),
+        JsonType::String => write_string_value(v.as_str().unwrap(), cfg, out),
         _ => unreachable!("write_scalar on non-scalar"),
     }
 }
@@ -273,6 +372,11 @@ fn write_number(v: &Value, out: &mut String) {
     if let Some(u) = v.as_u64() {
         let mut buf = itoa::Buffer::new();
         out.push_str(buf.format(u));
+        return;
+    }
+    let raw = v.to_string();
+    if !raw.contains('.') && !raw.contains('e') && !raw.contains('E') {
+        out.push_str(&raw);
         return;
     }
     if let Some(f) = v.as_f64() {
@@ -301,27 +405,43 @@ fn write_float(f: f64, out: &mut String) {
 
 // ==================== String ====================
 
-fn write_string_value(s: &str, out: &mut String) {
-    if needs_quoting(s, false) {
+fn write_string_value(s: &str, cfg: &Config, out: &mut String) {
+    if needs_quoting(s, false, cfg.delimiter) {
         write_quoted(s, out);
     } else {
         out.push_str(s);
     }
 }
 
-fn write_key(k: &str, out: &mut String) {
-    if needs_quoting(k, true) {
+fn write_key(k: &str, cfg: &Config, out: &mut String) {
+    if needs_quoting(k, true, cfg.delimiter) {
         write_quoted(k, out);
     } else {
         out.push_str(k);
     }
 }
 
-fn needs_quoting(s: &str, is_key: bool) -> bool {
+fn needs_quoting(s: &str, is_key: bool, delimiter: u8) -> bool {
     if s.is_empty() {
         return true;
     }
     let bytes = s.as_bytes();
+
+    if is_key {
+        // Keys must match TOON identifier pattern: [a-zA-Z_][a-zA-Z0-9_.]*
+        let first = bytes[0];
+        if !(first.is_ascii_alphabetic() || first == b'_') {
+            return true;
+        }
+        for &b in &bytes[1..] {
+            if !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Value rules
     match bytes[0] {
         b'-' | b'[' | b'{' | b'"' | b'#' | b' ' | b'\t' => return true,
         _ => {}
@@ -331,9 +451,11 @@ fn needs_quoting(s: &str, is_key: bool) -> bool {
         _ => {}
     }
     for &b in bytes {
+        if b == delimiter {
+            return true;
+        }
         match b {
-            b',' | b':' | b'\n' | b'\r' | b'\t' | b'"' | b'\\' => return true,
-            b' ' if is_key => return true,
+            b':' | b'\n' | b'\r' | b'\t' | b'"' | b'\\' => return true,
             _ => {}
         }
     }
@@ -388,16 +510,12 @@ fn looks_like_number(bytes: &[u8]) -> bool {
 }
 
 fn write_quoted(s: &str, out: &mut String) {
-    // Fast path: bulk-copy spans between escape chars using memchr-like scan.
-    // Escape bytes: '\\' 0x5c, '"' 0x22, '\n' 0x0a, '\r' 0x0d, '\t' 0x09
     out.push('"');
     let bytes = s.as_bytes();
     let mut start = 0;
     for (i, &b) in bytes.iter().enumerate() {
         if matches!(b, b'\\' | b'"' | b'\n' | b'\r' | b'\t') {
             if start < i {
-                // SAFETY: start..i is bounded by ASCII escape char positions;
-                // UTF-8 boundaries are preserved since escape chars are single-byte ASCII.
                 out.push_str(unsafe { std::str::from_utf8_unchecked(&bytes[start..i]) });
             }
             out.push_str(match b {

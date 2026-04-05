@@ -85,12 +85,22 @@ official `toon-format/toon` TypeScript SDK. Passes **111/111** TOON spec
 fixtures covering primitives, objects, arrays (primitive/tabular/nested/bulleted),
 and whitespace.
 
+## Advanced options
+
+```python
+# Custom delimiter (saves tokens when values contain commas)
+etoon.dumps(data, delimiter="|")   # or "\t"
+
+# Key folding: collapse {a:{b:{c:1}}} → "a.b.c: 1"
+etoon.dumps(data, fold_keys=True)
+etoon.dumps(data, fold_keys=True, flatten_depth=2)  # partial fold
+```
+
 ## Limitations
 
 - Integers > 2⁶³ are lossily coerced via f64 (works for most common big integers
   that happen to be representable; arbitrary-precision is not supported).
 - Custom `indent` is hardcoded to 2 spaces (TOON spec default).
-- TOON-specific features not yet supported: `--fold-keys`, `--delimiter tab/pipe`.
 
 ## License
 
