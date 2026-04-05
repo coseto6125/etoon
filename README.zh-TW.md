@@ -10,12 +10,13 @@
 
 50 筆 neptune payload 實測（7480 bytes JSON → 4012 bytes TOON）：
 
-| 編碼器                | 時間     | 相對倍數 |
-|-----------------------|----------|---------|
-| **etoon (Python)**    | 13.0 μs  | **1.00×** |
-| @toon-format/toon (TS)| 35.6 μs  | 2.73×    |
-| py-rtoon              | 85.9 μs  | 6.59×    |
-| toons                 | 106.4 μs | 8.17×    |
+| 編碼器                     | 時間     | 相對倍數   |
+|----------------------------|----------|-----------|
+| **etoon (Rust native)**    | 12.1 μs  | **1.00×** |
+| **etoon (Python, PyO3)**   | 15.4 μs  | 1.27×     |
+| @toon-format/toon (TS SDK) | 35.6 μs  | 2.94×     |
+| py-rtoon                   | 85.9 μs  | 7.10×     |
+| toons                      | 106.4 μs | 8.79×     |
 
 **CLI 透過 stdin pipe**（Claude / Bash 工作流）：
 

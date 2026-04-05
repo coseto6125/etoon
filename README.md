@@ -10,12 +10,13 @@ Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation
 
 Measured on a 50-doc "neptune" payload (7480 bytes JSON → 4012 bytes TOON):
 
-| Encoder               | Time    | Relative |
-|-----------------------|---------|----------|
-| **etoon (Python)**    | 13.0 μs | **1.00×** |
-| @toon-format/toon (TS)| 35.6 μs | 2.73×    |
-| py-rtoon              | 85.9 μs | 6.59×    |
-| toons                 | 106.4 μs| 8.17×    |
+| Encoder                    | Time    | vs etoon |
+|----------------------------|---------|----------|
+| **etoon (Rust, native)**   | 12.1 μs | **1.00×** |
+| **etoon (Python, PyO3)**   | 15.4 μs | 1.27×    |
+| @toon-format/toon (TS SDK) | 35.6 μs | 2.94×    |
+| py-rtoon                   | 85.9 μs | 7.10×    |
+| toons                      | 106.4 μs| 8.79×    |
 
 **CLI via stdin pipe** (Claude / Bash workflows):
 
