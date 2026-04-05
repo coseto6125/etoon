@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Fast TOON (Token-Oriented Object Notation) encoder. Byte-identical to the TOON spec, 8x faster than toons and 2.7x faster than the official TS SDK."
 requires-python = ">=3.10"
 license = "Apache-2.0"
+readme = "README.md"
 keywords = ["toon", "serialization", "llm", "json", "encoder"]
 classifiers = [
     "Development Status :: 4 - Beta",

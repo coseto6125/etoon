@@ -7,7 +7,7 @@ license = "Apache-2.0"
 repository = "https://github.com/coseto6125/etoon"
 keywords = ["toon", "serialization", "llm", "json", "encoder"]
 categories = ["encoding", "parser-implementations"]
-readme = false
+readme = "README.md"
 
 [lib]
 name = "_etoon"
