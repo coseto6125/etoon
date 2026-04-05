@@ -8,7 +8,7 @@ mod py_binding {
     #[pyfunction]
     fn dumps_bytes<'py>(py: Python<'py>, json_bytes: &Bound<'py, PyBytes>) -> PyResult<String> {
         let bytes = json_bytes.as_bytes();
-        py.allow_threads(|| crate::toon::encode(bytes))
+        py.detach(|| crate::toon::encode(bytes))
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 

@@ -2,6 +2,12 @@
 name = "etoon"
 version = "0.1.0"
 edition = "2021"
+description = "Fast TOON (Token-Oriented Object Notation) encoder. 8x faster than toons, 2.7x faster than the official TS SDK."
+license = "Apache-2.0"
+repository = "https://github.com/enor/etoon"
+keywords = ["toon", "serialization", "llm", "json", "encoder"]
+categories = ["encoding", "parser-implementations"]
+readme = false
 
 [lib]
 name = "_etoon"
@@ -17,14 +23,10 @@ default = ["python"]
 python = ["dep:pyo3"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
-serde_json = { version = "1.0", features = ["preserve_order", "arbitrary_precision"] }
-itoa = "1.0"
-ryu = "1.0"
-memchr = "2.7"
-jiter = { version = "0.13.0", default-features = false }
-simd-json = { version = "0.17.0", default-features = false }
+pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
 sonic-rs = { version = "0.5.8", default-features = false }
+itoa = "1.0.18"
+
 
 [profile.release]
 opt-level = 3

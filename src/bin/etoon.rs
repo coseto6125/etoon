@@ -80,7 +80,10 @@ fn main() -> ExitCode {
         None => Box::new(io::BufWriter::new(io::stdout().lock())),
     };
 
-    if let Err(e) = out.write_all(toon.as_bytes()).and_then(|_| out.write_all(b"\n")) {
+    if let Err(e) = out
+        .write_all(toon.as_bytes())
+        .and_then(|_| out.write_all(b"\n"))
+    {
         eprintln!("etoon: write error: {}", e);
         return ExitCode::FAILURE;
     }

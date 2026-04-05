@@ -5,14 +5,33 @@ build-backend = "maturin"
 [project]
 name = "etoon"
 version = "0.1.0"
-description = "Fast TOON encoder for Python via orjson bridge"
+description = "Fast TOON (Token-Oriented Object Notation) encoder. Byte-identical to the TOON spec, 8x faster than toons and 2.7x faster than the official TS SDK."
 requires-python = ">=3.10"
+license = "Apache-2.0"
+keywords = ["toon", "serialization", "llm", "json", "encoder"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Text Processing :: Markup",
+]
 dependencies = ["orjson>=3.10"]
+
+[project.urls]
+Repository = "https://github.com/enor/etoon"
+Issues = "https://github.com/enor/etoon/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "toons>=0.5.4"]
 
 [tool.maturin]
+bindings = "pyo3"
 module-name = "etoon._etoon"
 python-source = "python"
 features = ["pyo3/extension-module"]

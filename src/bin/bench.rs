@@ -1,6 +1,7 @@
 //! Pure Rust benchmark for etoon encoder.
 //!
 //! Measures the encoder hot path without PyO3/Python overhead.
+//! Usage: ./bench [path/to/payload.json]
 
 use std::fs;
 use std::time::Instant;
@@ -28,12 +29,14 @@ fn main() {
     let path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "/tmp/neptune_payload.json".into());
-    let json_bytes = fs::read(&path).expect("read input");
-    println!("payload: {} ({} bytes)", path, json_bytes.len());
+    let json_bytes = fs::read(&path).unwrap_or_else(|e| {
+        eprintln!("cannot read {}: {}", path, e);
+        std::process::exit(1);
+    });
+    println!("payload: {} ({} bytes)\n", path, json_bytes.len());
 
-    // Phase 0: full pipeline (parse + emit)
     let total = bench(
-        "encode (parse + emit)",
+        "encode (sonic-rs parse + TOON emit)",
         || {
             let _ = _etoon::toon::encode(&json_bytes).unwrap();
         },
@@ -41,27 +44,27 @@ fn main() {
         5000,
     );
 
-    // Isolated: parse only
     let parse = bench(
-        "parse only (serde_json)",
+        "parse only (sonic-rs)",
         || {
-            let _: serde_json::Value = serde_json::from_slice(&json_bytes).unwrap();
+            let _: sonic_rs::Value = sonic_rs::from_slice(&json_bytes).unwrap();
         },
         10,
         5000,
     );
 
-    println!("  {:40} {:6.2} us  ({:4.1}%)", "  ↳ emit only (estimated)", total - parse, (total - parse) / total * 100.0);
-    println!("  {:40} {:6.2} us  ({:4.1}%)", "  ↳ parse only", parse, parse / total * 100.0);
-
-    // Reference: serde_json re-serialize (for comparison)
-    let value: serde_json::Value = serde_json::from_slice(&json_bytes).unwrap();
-    bench(
-        "serde_json::to_string (reference)",
-        || {
-            let _ = serde_json::to_string(&value).unwrap();
-        },
-        10,
-        5000,
+    let emit = total - parse;
+    println!();
+    println!(
+        "  {:40} {:6.2} us  ({:.1}%)",
+        "  ↳ parse",
+        parse,
+        parse / total * 100.0
+    );
+    println!(
+        "  {:40} {:6.2} us  ({:.1}%)",
+        "  ↳ emit (estimated)",
+        emit,
+        emit / total * 100.0
     );
 }

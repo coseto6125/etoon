@@ -7,8 +7,8 @@ use sonic_rs::{Array, JsonContainerTrait, JsonType, JsonValueTrait, Object, Valu
 use std::fmt::Write as _;
 
 pub fn encode(json_bytes: &[u8]) -> Result<String, String> {
-    let value: Value = sonic_rs::from_slice(json_bytes)
-        .map_err(|e| format!("JSON parse error: {}", e))?;
+    let value: Value =
+        sonic_rs::from_slice(json_bytes).map_err(|e| format!("JSON parse error: {}", e))?;
     let mut out = String::with_capacity(json_bytes.len().saturating_mul(3) / 4);
     write_root(&value, &mut out);
     Ok(out)
@@ -264,9 +264,11 @@ fn table_keys(arr: &Array) -> Option<(Vec<String>, bool)> {
 fn write_scalar(v: &Value, out: &mut String) {
     match v.get_type() {
         JsonType::Null => out.push_str("null"),
-        JsonType::Boolean => {
-            out.push_str(if v.as_bool().unwrap() { "true" } else { "false" })
-        }
+        JsonType::Boolean => out.push_str(if v.as_bool().unwrap() {
+            "true"
+        } else {
+            "false"
+        }),
         JsonType::Number => write_number(v, out),
         JsonType::String => write_string_value(v.as_str().unwrap(), out),
         _ => unreachable!("write_scalar on non-scalar"),
