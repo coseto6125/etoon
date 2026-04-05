@@ -15,12 +15,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install maturin + pytest
-        run: pip install maturin pytest
-      - name: Build + install Python extension
-        run: maturin develop --release
+      - name: Create virtualenv + install
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install maturin pytest
+          maturin develop --release
       - name: Run 111 TOON spec fixtures
-        run: python -m pytest tests/test_spec_fixtures.py -q
+        run: |
+          . .venv/bin/activate
+          python -m pytest tests/test_spec_fixtures.py -q
       - name: Build CLI binary
         run: cargo build --release --bin etoon --no-default-features
       - name: Smoke-test CLI
