@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "etoon"
+version = "0.1.0"
+description = "Fast TOON encoder for Python via orjson bridge"
+requires-python = ">=3.10"
+dependencies = ["orjson>=3.10"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "toons>=0.5.4"]
+
+[tool.maturin]
+module-name = "etoon._etoon"
+python-source = "python"
+features = ["pyo3/extension-module"]
