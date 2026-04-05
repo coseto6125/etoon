@@ -60,6 +60,28 @@ curl -s https://api.example.com/data | etoon
 cat data.json | etoon -o output.toon
 ```
 
+### LLM agents (Claude Code, etc.)
+
+Add `| etoon` to any JSON-emitting shell command to save LLM tokens when
+reading the output. The transformation is lossless and the TOON format is
+far more compact (40-60% fewer tokens typical).
+
+```bash
+gh pr list --json number,title,author | etoon
+aws s3api list-buckets | etoon
+kubectl get pods -o json | etoon
+```
+
+**Pipeline rules for LLM use**:
+- Terminal-only — `jq` / `grep` / `awk` must come *before* `| etoon`, never after
+- Non-JSON input passes through unchanged (safe to default-on)
+- Skip for byte-exact diff comparisons or tiny single-blob outputs
+- If `etoon` fails (rare, on malformed JSON), re-run without the pipe
+
+Example Claude Code rule in `CLAUDE.md`:
+> Append `| etoon` to any JSON-emitting bash command by default. Place it
+> at the very end of the pipeline. Re-run without pipe if it fails.
+
 ### Rust
 ```rust
 let json_bytes = serde_json::to_vec(&my_data)?;

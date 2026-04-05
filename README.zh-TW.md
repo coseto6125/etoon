@@ -60,6 +60,27 @@ curl -s https://api.example.com/data | etoon
 cat data.json | etoon -o output.toon
 ```
 
+### LLM agent 使用（Claude Code 等）
+
+在任何會輸出 JSON 的 shell 指令後接 `| etoon`，讀取時省 LLM token。轉換
+無損，TOON 格式比 JSON 精簡（通常省 40-60% token）。
+
+```bash
+gh pr list --json number,title,author | etoon
+aws s3api list-buckets | etoon
+kubectl get pods -o json | etoon
+```
+
+**LLM 用法規則**：
+- 終端專用 — `jq` / `grep` / `awk` 要放在 `| etoon` **之前**，絕不在後
+- 非 JSON 輸入會原樣 pass through（預設開啟安全）
+- byte-exact diff 或極小單 blob 輸出可跳過
+- `etoon` fail（極罕見，JSON 壞格式）時無 pipe 重跑
+
+`CLAUDE.md` 範例規則：
+> 任何會輸出 JSON 的 bash 指令尾端預設加 `| etoon`，放在 pipeline 最後。
+> 失敗時移除 pipe 重跑。
+
 ### Rust
 ```rust
 let json_bytes = serde_json::to_vec(&my_data)?;
