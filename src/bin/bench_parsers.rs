@@ -41,3 +41,5 @@ fn main() {
         let _: serde_json::Value = sonic_rs::from_slice(&json_bytes).unwrap();
     });
 }
+
+// see main() in bench_parsers
