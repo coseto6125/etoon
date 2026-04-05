@@ -4,7 +4,7 @@ Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation
 
 **8× faster than `toons`**, **2.7× faster than the official TS SDK**, byte-identical output.
 
-[中文說明](./README.zh-TW.md)
+[中文說明](https://github.com/coseto6125/etoon/blob/main/README.zh-TW.md)
 
 ## Performance
 

@@ -4,7 +4,7 @@
 
 **比 `toons` 快 8 倍**、**比官方 TS SDK 快 2.7 倍**，輸出 byte-identical。
 
-[English](./README.md)
+[English](https://github.com/coseto6125/etoon/blob/main/README.md)
 
 ## 效能
 
