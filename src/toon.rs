@@ -1,7 +1,10 @@
 //! TOON encoder core (sonic-rs backend).
 //!
 //! Input: JSON bytes (from orjson.dumps on Python side).
-//! Output: TOON string, byte-identical to `toons.dumps()` + TOON spec v1.5.
+//! Output: TOON string, matching TOON spec v1.5.
+//!
+//! Delimiter is monomorphized via const generics (`DELIM: u8`) so the
+//! byte-match inner loops fold away when emitting default-comma output.
 
 use sonic_rs::{Array, JsonContainerTrait, JsonType, JsonValueTrait, Object, Value};
 use std::collections::HashSet;
@@ -36,26 +39,36 @@ pub fn encode_with(json_bytes: &[u8], cfg: &Config) -> Result<String, String> {
     let value: Value =
         sonic_rs::from_slice(json_bytes).map_err(|e| format!("JSON parse error: {}", e))?;
     let mut out = String::with_capacity(json_bytes.len());
-    write_root(&value, cfg, &mut out);
+    match cfg.delimiter {
+        b',' => write_root::<b','>(&value, cfg, &mut out),
+        b'\t' => write_root::<b'\t'>(&value, cfg, &mut out),
+        b'|' => write_root::<b'|'>(&value, cfg, &mut out),
+        _ => return Err("delimiter must be ',', '\\t', or '|'".to_string()),
+    }
     Ok(out)
 }
 
-fn write_root(v: &Value, cfg: &Config, out: &mut String) {
+fn write_root<const DELIM: u8>(v: &Value, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let m = v.as_object().unwrap();
             if !m.is_empty() {
-                // Key folding applies only at the top-level object, per TOON spec v1.5.
-                write_object_body(m, 0, cfg, cfg.key_folding, out);
+                // Key folding applies only at the top-level object (TOON spec v1.5).
+                write_object_body::<DELIM>(m, 0, cfg, cfg.key_folding, out);
             }
         }
-        JsonType::Array => write_array_suffix(v.as_array().unwrap(), 0, cfg, out),
-        _ => write_scalar(v, cfg, out),
+        JsonType::Array => write_array_suffix::<DELIM>(v.as_array().unwrap(), 0, cfg, out),
+        _ => write_scalar::<DELIM>(v, out),
     }
 }
 
-fn write_object_body(m: &Object, indent: usize, cfg: &Config, allow_fold: bool, out: &mut String) {
-    // Collect literal sibling keys only when folding at this level.
+fn write_object_body<const DELIM: u8>(
+    m: &Object,
+    indent: usize,
+    cfg: &Config,
+    allow_fold: bool,
+    out: &mut String,
+) {
     let siblings: Option<HashSet<&str>> = if allow_fold {
         Some(m.iter().map(|(k, _)| k).collect())
     } else {
@@ -78,37 +91,32 @@ fn write_object_body(m: &Object, indent: usize, cfg: &Config, allow_fold: bool, 
                     }
                     out.push_str(seg);
                 }
-                write_value_after_key(final_v, indent, cfg, out);
+                write_value_after_key::<DELIM>(final_v, indent, cfg, out);
                 continue;
             }
         }
 
-        write_key(k, cfg, out);
-        write_value_after_key(v, indent, cfg, out);
+        write_key(k, out);
+        write_value_after_key::<DELIM>(v, indent, cfg, out);
     }
 }
 
-/// Attempt to build a folded chain starting at (k, v).
-/// Returns `Some((path, final_value))` if fold is viable (chain length ≥ 2,
-/// all segments don't need quoting, within flatten_depth, no collision).
 fn try_fold<'a>(
     k: &'a str,
     v: &'a Value,
     cfg: &Config,
     siblings: &HashSet<&str>,
 ) -> Option<(Vec<&'a str>, &'a Value)> {
-    // flatten_depth of 0 or 1 means no practical folding (need ≥2 segments).
     let max_depth = cfg.flatten_depth.unwrap_or(usize::MAX);
     if max_depth < 2 {
         return None;
     }
 
-    // Key segment must not need quoting (safe mode).
-    if needs_quoting(k, true, cfg.delimiter) {
+    // Key segments must match TOON identifier pattern (safe mode).
+    if key_needs_quoting(k) {
         return None;
     }
 
-    // First value must be a non-empty single-key object for chain to start.
     let mut cur_v = v;
     let mut path: Vec<&'a str> = vec![k];
 
@@ -124,8 +132,7 @@ fn try_fold<'a>(
             break;
         }
         let (nk, nv) = obj.iter().next().unwrap();
-        if needs_quoting(nk, true, cfg.delimiter) {
-            // Cannot fold past a segment requiring quotes (safe mode).
+        if key_needs_quoting(nk) {
             break;
         }
         path.push(nk);
@@ -136,7 +143,6 @@ fn try_fold<'a>(
         return None;
     }
 
-    // Collision check: verify folded path doesn't match any literal sibling key.
     let joined: String = path.join(".");
     for &s in siblings {
         if s != k && s == joined.as_str() {
@@ -147,8 +153,12 @@ fn try_fold<'a>(
     Some((path, cur_v))
 }
 
-/// Write the ": value" or ":\n<body>" tail after a key at `key_indent`.
-fn write_value_after_key(v: &Value, key_indent: usize, cfg: &Config, out: &mut String) {
+fn write_value_after_key<const DELIM: u8>(
+    v: &Value,
+    key_indent: usize,
+    cfg: &Config,
+    out: &mut String,
+) {
     match v.get_type() {
         JsonType::Object => {
             let child = v.as_object().unwrap();
@@ -157,21 +167,21 @@ fn write_value_after_key(v: &Value, key_indent: usize, cfg: &Config, out: &mut S
             } else {
                 out.push_str(":\n");
                 // Nested object bodies never re-apply key folding (TOON spec: top-level only).
-                write_object_body(child, key_indent + 1, cfg, false, out);
+                write_object_body::<DELIM>(child, key_indent + 1, cfg, false, out);
             }
         }
-        JsonType::Array => write_array_suffix(v.as_array().unwrap(), key_indent, cfg, out),
+        JsonType::Array => write_array_suffix::<DELIM>(v.as_array().unwrap(), key_indent, cfg, out),
         _ => {
             out.push_str(": ");
-            write_scalar(v, cfg, out);
+            write_scalar::<DELIM>(v, out);
         }
     }
 }
 
-fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String) {
+fn write_array_suffix<const DELIM: u8>(arr: &Array, indent: usize, cfg: &Config, out: &mut String) {
     write!(out, "[{}", arr.len()).unwrap();
-    if cfg.delimiter != b',' {
-        out.push(cfg.delimiter as char);
+    if DELIM != b',' {
+        out.push(DELIM as char);
     }
     out.push(']');
 
@@ -185,10 +195,10 @@ fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String
         let mut first = true;
         for v in arr.iter() {
             if !first {
-                out.push(cfg.delimiter as char);
+                out.push(DELIM as char);
             }
             first = false;
-            write_scalar(v, cfg, out);
+            write_scalar::<DELIM>(v, out);
         }
         return;
     }
@@ -197,9 +207,9 @@ fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String
         out.push('{');
         for (i, k) in keys.iter().enumerate() {
             if i > 0 {
-                out.push(cfg.delimiter as char);
+                out.push(DELIM as char);
             }
-            write_key(k, cfg, out);
+            write_key(k, out);
         }
         out.push_str("}:");
         if uniform_order {
@@ -210,10 +220,10 @@ fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String
                 let mut first = true;
                 for (_, v) in m.iter() {
                     if !first {
-                        out.push(cfg.delimiter as char);
+                        out.push(DELIM as char);
                     }
                     first = false;
-                    write_scalar(v, cfg, out);
+                    write_scalar::<DELIM>(v, out);
                 }
             }
         } else {
@@ -224,10 +234,10 @@ fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String
                 let mut first = true;
                 for k in &keys {
                     if !first {
-                        out.push(cfg.delimiter as char);
+                        out.push(DELIM as char);
                     }
                     first = false;
-                    write_scalar(m.get(k).unwrap(), cfg, out);
+                    write_scalar::<DELIM>(m.get(k).unwrap(), out);
                 }
             }
         }
@@ -239,31 +249,31 @@ fn write_array_suffix(arr: &Array, indent: usize, cfg: &Config, out: &mut String
         out.push('\n');
         write_indent(indent + 1, out);
         out.push('-');
-        write_list_item(item, indent + 1, cfg, out);
+        write_list_item::<DELIM>(item, indent + 1, cfg, out);
     }
 }
 
-fn write_list_item(v: &Value, l: usize, cfg: &Config, out: &mut String) {
+fn write_list_item<const DELIM: u8>(v: &Value, l: usize, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let m = v.as_object().unwrap();
             if !m.is_empty() {
                 out.push(' ');
-                write_list_item_object(m, l, cfg, out);
+                write_list_item_object::<DELIM>(m, l, cfg, out);
             }
         }
         JsonType::Array => {
             out.push(' ');
-            write_array_suffix(v.as_array().unwrap(), l, cfg, out);
+            write_array_suffix::<DELIM>(v.as_array().unwrap(), l, cfg, out);
         }
         _ => {
             out.push(' ');
-            write_scalar(v, cfg, out);
+            write_scalar::<DELIM>(v, out);
         }
     }
 }
 
-fn write_list_item_object(m: &Object, l: usize, cfg: &Config, out: &mut String) {
+fn write_list_item_object<const DELIM: u8>(m: &Object, l: usize, cfg: &Config, out: &mut String) {
     let mut first = true;
     for (k, v) in m.iter() {
         if !first {
@@ -271,14 +281,13 @@ fn write_list_item_object(m: &Object, l: usize, cfg: &Config, out: &mut String) 
             write_indent(l + 1, out);
         }
         first = false;
-        write_key(k, cfg, out);
-        write_value_after_key(v, l + 1, cfg, out);
+        write_key(k, out);
+        write_value_after_key::<DELIM>(v, l + 1, cfg, out);
     }
 }
 
 // ==================== Helpers ====================
 
-// Pre-computed indent strings for common depths (0-8 levels).
 const INDENTS: [&str; 9] = [
     "",
     "  ",
@@ -306,7 +315,6 @@ fn is_scalar(v: &Value) -> bool {
     !matches!(v.get_type(), JsonType::Object | JsonType::Array)
 }
 
-/// Return ordered keys + order-uniformity flag if array is tabular-eligible.
 fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
     let first_v = arr.iter().next()?;
     let first = first_v.as_object()?;
@@ -334,7 +342,6 @@ fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
                 uniform_order = false;
             }
         }
-        // Order mismatch: re-verify via lookup that every header key exists in this row.
         if !uniform_order {
             for k in &keys {
                 match m.get(k) {
@@ -349,7 +356,8 @@ fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
 
 // ==================== Scalar ====================
 
-fn write_scalar(v: &Value, cfg: &Config, out: &mut String) {
+#[inline]
+fn write_scalar<const DELIM: u8>(v: &Value, out: &mut String) {
     match v.get_type() {
         JsonType::Null => out.push_str("null"),
         JsonType::Boolean => out.push_str(if v.as_bool().unwrap() {
@@ -358,7 +366,7 @@ fn write_scalar(v: &Value, cfg: &Config, out: &mut String) {
             "false"
         }),
         JsonType::Number => write_number(v, out),
-        JsonType::String => write_string_value(v.as_str().unwrap(), cfg, out),
+        JsonType::String => write_string_value::<DELIM>(v.as_str().unwrap(), out),
         _ => unreachable!("write_scalar on non-scalar"),
     }
 }
@@ -405,43 +413,48 @@ fn write_float(f: f64, out: &mut String) {
 
 // ==================== String ====================
 
-fn write_string_value(s: &str, cfg: &Config, out: &mut String) {
-    if needs_quoting(s, false, cfg.delimiter) {
+#[inline]
+fn write_string_value<const DELIM: u8>(s: &str, out: &mut String) {
+    if value_needs_quoting::<DELIM>(s) {
         write_quoted(s, out);
     } else {
         out.push_str(s);
     }
 }
 
-fn write_key(k: &str, cfg: &Config, out: &mut String) {
-    if needs_quoting(k, true, cfg.delimiter) {
+fn write_key(k: &str, out: &mut String) {
+    if key_needs_quoting(k) {
         write_quoted(k, out);
     } else {
         out.push_str(k);
     }
 }
 
-fn needs_quoting(s: &str, is_key: bool, delimiter: u8) -> bool {
+/// Keys must match TOON identifier pattern: `[a-zA-Z_][a-zA-Z0-9_.]*`.
+#[inline]
+fn key_needs_quoting(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
     let bytes = s.as_bytes();
-
-    if is_key {
-        // Keys must match TOON identifier pattern: [a-zA-Z_][a-zA-Z0-9_.]*
-        let first = bytes[0];
-        if !(first.is_ascii_alphabetic() || first == b'_') {
+    let first = bytes[0];
+    if !(first.is_ascii_alphabetic() || first == b'_') {
+        return true;
+    }
+    for &b in &bytes[1..] {
+        if !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.') {
             return true;
         }
-        for &b in &bytes[1..] {
-            if !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.') {
-                return true;
-            }
-        }
-        return false;
     }
+    false
+}
 
-    // Value rules
+#[inline]
+fn value_needs_quoting<const DELIM: u8>(s: &str) -> bool {
+    if s.is_empty() {
+        return true;
+    }
+    let bytes = s.as_bytes();
     match bytes[0] {
         b'-' | b'[' | b'{' | b'"' | b'#' | b' ' | b'\t' => return true,
         _ => {}
@@ -450,12 +463,13 @@ fn needs_quoting(s: &str, is_key: bool, delimiter: u8) -> bool {
         b' ' | b'\t' => return true,
         _ => {}
     }
+    // DELIM is a compile-time constant, so this match collapses into the
+    // single match arm below when DELIM is in {',', '\t'} (already included),
+    // and stays as a separate branch only for DELIM = '|'.
     for &b in bytes {
-        if b == delimiter {
-            return true;
-        }
         match b {
             b':' | b'\n' | b'\r' | b'\t' | b'"' | b'\\' => return true,
+            _ if b == DELIM => return true,
             _ => {}
         }
     }

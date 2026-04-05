@@ -1,6 +1,6 @@
 [package]
 name = "etoon"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Fast TOON (Token-Oriented Object Notation) encoder. 8x faster than toons, 2.7x faster than the official TS SDK."
 license = "Apache-2.0"
