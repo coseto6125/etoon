@@ -24,8 +24,8 @@ classifiers = [
 dependencies = ["orjson>=3.10"]
 
 [project.urls]
-Repository = "https://github.com/enor/etoon"
-Issues = "https://github.com/enor/etoon/issues"
+Repository = "https://github.com/coseto6125/etoon"
+Issues = "https://github.com/coseto6125/etoon/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "toons>=0.5.4"]
