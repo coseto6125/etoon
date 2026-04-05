@@ -9,7 +9,8 @@ use std::fmt::Write as _;
 pub fn encode(json_bytes: &[u8]) -> Result<String, String> {
     let value: Value =
         sonic_rs::from_slice(json_bytes).map_err(|e| format!("JSON parse error: {}", e))?;
-    let mut out = String::with_capacity(json_bytes.len().saturating_mul(3) / 4);
+    // TOON output is always ≤ input JSON size; use input.len() as a safe upper bound.
+    let mut out = String::with_capacity(json_bytes.len());
     write_root(&value, &mut out);
     Ok(out)
 }
@@ -41,6 +42,13 @@ fn write_object_body(m: &Object, indent: usize, out: &mut String) {
 
 fn write_key_value(k: &str, v: &Value, indent: usize, out: &mut String) {
     write_key(k, out);
+    write_value_after_key(v, indent, out);
+}
+
+/// Write the ": value" or ":\n<body>" tail after a key at `key_indent`.
+/// Child object bodies go at `key_indent + 1`; array rows go at `key_indent + 1`
+/// (via write_array_suffix's internal `+ 1`).
+fn write_value_after_key(v: &Value, key_indent: usize, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let child = v.as_object().unwrap();
@@ -48,10 +56,10 @@ fn write_key_value(k: &str, v: &Value, indent: usize, out: &mut String) {
                 out.push(':');
             } else {
                 out.push_str(":\n");
-                write_object_body(child, indent + 1, out);
+                write_object_body(child, key_indent + 1, out);
             }
         }
-        JsonType::Array => write_array_suffix(v.as_array().unwrap(), indent, out),
+        JsonType::Array => write_array_suffix(v.as_array().unwrap(), key_indent, out),
         _ => {
             out.push_str(": ");
             write_scalar(v, out);
@@ -67,7 +75,6 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
         return;
     }
 
-    // All scalars → inline
     if arr.iter().all(is_scalar) {
         out.push_str(": ");
         let mut first = true;
@@ -81,7 +88,6 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
         return;
     }
 
-    // Tabular
     if let Some((keys, uniform_order)) = table_keys(arr) {
         out.push('{');
         for (i, k) in keys.iter().enumerate() {
@@ -119,14 +125,13 @@ fn write_array_suffix(arr: &Array, indent: usize, out: &mut String) {
                         out.push(',');
                     }
                     first = false;
-                    write_scalar(m.get(&k.as_str()).unwrap(), out);
+                    write_scalar(m.get(k).unwrap(), out);
                 }
             }
         }
         return;
     }
 
-    // Bulleted fallback
     out.push(':');
     for item in arr.iter() {
         out.push('\n');
@@ -165,22 +170,8 @@ fn write_list_item_object(m: &Object, l: usize, out: &mut String) {
         }
         first = false;
         write_key(k, out);
-        match v.get_type() {
-            JsonType::Object => {
-                let child = v.as_object().unwrap();
-                if child.is_empty() {
-                    out.push(':');
-                } else {
-                    out.push_str(":\n");
-                    write_object_body(child, l + 2, out);
-                }
-            }
-            JsonType::Array => write_array_suffix(v.as_array().unwrap(), l + 1, out),
-            _ => {
-                out.push_str(": ");
-                write_scalar(v, out);
-            }
-        }
+        // List-item's first key sits at virtual indent l+1, so pass l+1 as key_indent.
+        write_value_after_key(v, l + 1, out);
     }
 }
 
@@ -217,7 +208,7 @@ fn is_scalar(v: &Value) -> bool {
 /// Return ordered keys + order-uniformity flag if array is tabular-eligible.
 /// `uniform_order = true` means every row has keys in the exact same order as the header,
 /// allowing sequential iteration without key lookups.
-fn table_keys(arr: &Array) -> Option<(Vec<String>, bool)> {
+fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
     let first_v = arr.iter().next()?;
     let first = first_v.as_object()?;
     if first.is_empty() {
@@ -226,7 +217,7 @@ fn table_keys(arr: &Array) -> Option<(Vec<String>, bool)> {
     if !first.iter().all(|(_, v)| is_scalar(v)) {
         return None;
     }
-    let keys: Vec<String> = first.iter().map(|(k, _)| k.to_string()).collect();
+    let keys: Vec<&'a str> = first.iter().map(|(k, _)| k).collect();
     let mut uniform_order = true;
 
     for item in arr.iter().skip(1) {
@@ -234,22 +225,20 @@ fn table_keys(arr: &Array) -> Option<(Vec<String>, bool)> {
         if m.len() != keys.len() {
             return None;
         }
-        // Check order + scalar values in single pass
         let mut row_iter = m.iter();
         for k in &keys {
             let (ik, iv) = row_iter.next()?;
             if !is_scalar(iv) {
                 return None;
             }
-            if ik != k.as_str() {
+            if ik != *k {
                 uniform_order = false;
-                // Can't early-return — still need to verify all keys exist and values scalar.
             }
         }
-        // If order mismatch, do a final pass to confirm keys exist
+        // Order mismatch: re-verify via lookup that every header key exists in this row.
         if !uniform_order {
             for k in &keys {
-                match m.get(&k.as_str()) {
+                match m.get(k) {
                     Some(v) if is_scalar(v) => {}
                     _ => return None,
                 }
