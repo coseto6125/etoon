@@ -84,8 +84,7 @@ fn write_object_body<const DELIM: u8>(
         write_indent(indent, out);
 
         if let Some(ref sibs) = siblings {
-            if let Some((path, final_v)) = try_fold(k, v, cfg, sibs) {
-                let joined: String = path.join(".");
+            if let Some((joined, final_v)) = try_fold(k, v, cfg, sibs) {
                 write_key(&joined, out);
                 write_value_after_key::<DELIM>(final_v, indent, cfg, out);
                 continue;
@@ -102,7 +101,7 @@ fn try_fold<'a>(
     v: &'a Value,
     cfg: &Config,
     siblings: &HashSet<&str>,
-) -> Option<(Vec<&'a str>, &'a Value)> {
+) -> Option<(String, &'a Value)> {
     let max_depth = cfg.flatten_depth.unwrap_or(usize::MAX);
     if max_depth < 2 {
         return None;
@@ -146,7 +145,7 @@ fn try_fold<'a>(
         }
     }
 
-    Some((path, cur_v))
+    Some((joined, cur_v))
 }
 
 fn write_value_after_key<const DELIM: u8>(

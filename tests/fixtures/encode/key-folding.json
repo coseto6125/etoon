@@ -226,7 +226,7 @@
         "keyFolding": "safe"
       },
       "specSection": "13.4",
-      "note": "@log → detail → code is a single-key chain; result key needs quoting due to @"
+      "note": "@log → detail → code is a single-key chain; @-prefixed folded key is a valid identifier"
     },
     {
       "name": "encodes folded chains preserving sibling field order",
