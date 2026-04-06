@@ -65,13 +65,16 @@ fn read_stdin() -> Result<Vec<u8>, ExitCode> {
 fn open_output(output_path: Option<String>) -> Result<Box<dyn Write>, ExitCode> {
     match output_path {
         Some(path) => match fs::File::create(&path) {
-            Ok(f) => Ok(Box::new(io::BufWriter::new(f))),
+            Ok(f) => Ok(Box::new(io::BufWriter::with_capacity(65536, f))),
             Err(e) => {
                 eprintln!("etoon: cannot create {}: {}", path, e);
                 Err(ExitCode::FAILURE)
             }
         },
-        None => Ok(Box::new(io::BufWriter::new(io::stdout().lock()))),
+        None => Ok(Box::new(io::BufWriter::with_capacity(
+            65536,
+            io::stdout().lock(),
+        ))),
     }
 }
 
@@ -124,15 +127,27 @@ fn run_strict_stdin(output_path: Option<String>) -> ExitCode {
     }
 }
 
+/// Bulk output — two direct write_all calls, no BufWriter needed.
 fn write_output(toon: &str, output_path: Option<String>) -> ExitCode {
-    let mut out = match open_output(output_path) {
-        Ok(w) => w,
-        Err(code) => return code,
+    let result = match output_path {
+        Some(ref path) => {
+            let mut f = match fs::File::create(path) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("etoon: cannot create {}: {}", path, e);
+                    return ExitCode::FAILURE;
+                }
+            };
+            f.write_all(toon.as_bytes())
+                .and_then(|_| f.write_all(b"\n"))
+        }
+        None => {
+            let mut out = io::stdout().lock();
+            out.write_all(toon.as_bytes())
+                .and_then(|_| out.write_all(b"\n"))
+        }
     };
-    if let Err(e) = out
-        .write_all(toon.as_bytes())
-        .and_then(|_| out.write_all(b"\n"))
-    {
+    if let Err(e) = result {
         eprintln!("etoon: write error: {}", e);
         return ExitCode::FAILURE;
     }
@@ -140,62 +155,111 @@ fn write_output(toon: &str, output_path: Option<String>) -> ExitCode {
 }
 
 /// Line-by-line log mode from pre-read buffer.
-/// JSON blocks → TOON encode, non-JSON → pass-through.
+/// JSON blocks → TOON encode, non-JSON → batch write contiguous ranges.
 fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
     let mut out = match open_output(output_path) {
         Ok(w) => w,
         Err(code) => return code,
     };
 
-    let mut json_buf = String::new();
+    let buf_base = buf.as_ptr() as usize;
+    // Track contiguous plain-text range for batch writes
+    let mut plain_start: Option<usize> = None;
+    let mut block_start: usize = 0;
     let mut brace_depth: i32 = 0;
     let mut bracket_depth: i32 = 0;
     let mut in_json_block = false;
 
     for raw_line in buf.split(|&b| b == b'\n') {
-        let line = match std::str::from_utf8(raw_line) {
-            Ok(s) => s,
-            Err(_) => {
-                let _ = out.write_all(raw_line);
-                let _ = out.write_all(b"\n");
-                continue;
-            }
-        };
-        // Strip trailing \r for Windows-style line endings
-        let line = line.strip_suffix('\r').unwrap_or(line);
+        let line_offset = raw_line.as_ptr() as usize - buf_base;
 
         if in_json_block {
+            let line = match std::str::from_utf8(raw_line) {
+                Ok(s) => s.strip_suffix('\r').unwrap_or(s),
+                Err(_) => {
+                    // Invalid UTF-8 inside JSON block — abandon block, pass-through
+                    in_json_block = false;
+                    let block_bytes = &buf[block_start..line_offset + raw_line.len()];
+                    if let Err(e) = out
+                        .write_all(block_bytes)
+                        .and_then(|_| out.write_all(b"\n"))
+                    {
+                        eprintln!("etoon: write error: {}", e);
+                        return ExitCode::FAILURE;
+                    }
+                    continue;
+                }
+            };
+
             update_depths(line, &mut brace_depth, &mut bracket_depth);
-            json_buf.push('\n');
-            json_buf.push_str(line);
 
             if brace_depth <= 0 && bracket_depth <= 0 {
                 in_json_block = false;
-                let encoded = try_encode_json(json_buf.trim().as_bytes());
-                let text = encoded.as_deref().unwrap_or(&json_buf);
-                if let Err(e) = writeln!(out, "{}", text) {
+                let block_end = line_offset + raw_line.len();
+                let block_bytes = &buf[block_start..block_end];
+                let block_str = std::str::from_utf8(block_bytes).unwrap_or("");
+
+                if let Some(encoded) = try_encode_json(block_str.trim().as_bytes()) {
+                    if let Err(e) = out
+                        .write_all(encoded.as_bytes())
+                        .and_then(|_| out.write_all(b"\n"))
+                    {
+                        eprintln!("etoon: write error: {}", e);
+                        return ExitCode::FAILURE;
+                    }
+                } else if let Err(e) = out
+                    .write_all(block_str.trim().as_bytes())
+                    .and_then(|_| out.write_all(b"\n"))
+                {
                     eprintln!("etoon: write error: {}", e);
                     return ExitCode::FAILURE;
                 }
-                json_buf.clear();
                 brace_depth = 0;
                 bracket_depth = 0;
             }
             continue;
         }
 
+        let line = match std::str::from_utf8(raw_line) {
+            Ok(s) => s.strip_suffix('\r').unwrap_or(s),
+            Err(_) => {
+                // Non-UTF8: flush plain run, then pass-through raw bytes
+                if let Some(start) = plain_start.take() {
+                    if let Err(e) = out.write_all(&buf[start..line_offset]) {
+                        eprintln!("etoon: write error: {}", e);
+                        return ExitCode::FAILURE;
+                    }
+                }
+                if let Err(e) = out.write_all(raw_line).and_then(|_| out.write_all(b"\n")) {
+                    eprintln!("etoon: write error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+                continue;
+            }
+        };
+
         let trimmed = line.trim_start();
 
         if trimmed.starts_with('{') || looks_like_json_array(trimmed) {
+            // Flush accumulated plain text
+            if let Some(start) = plain_start.take() {
+                if let Err(e) = out.write_all(&buf[start..line_offset]) {
+                    eprintln!("etoon: write error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+            }
+
             if let Some(encoded) = try_encode_json(trimmed.as_bytes()) {
-                if let Err(e) = writeln!(out, "{}", encoded) {
+                if let Err(e) = out
+                    .write_all(encoded.as_bytes())
+                    .and_then(|_| out.write_all(b"\n"))
+                {
                     eprintln!("etoon: write error: {}", e);
                     return ExitCode::FAILURE;
                 }
             } else {
                 in_json_block = true;
-                json_buf.clear();
-                json_buf.push_str(line);
+                block_start = line_offset;
                 brace_depth = 0;
                 bracket_depth = 0;
                 update_depths(line, &mut brace_depth, &mut bracket_depth);
@@ -203,14 +267,31 @@ fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
             continue;
         }
 
-        if let Err(e) = writeln!(out, "{}", line) {
+        // Plain text line — extend the batch range (includes the \n separator in buf)
+        if plain_start.is_none() {
+            plain_start = Some(line_offset);
+        }
+        // The range will extend to the next line's offset (which covers the \n)
+    }
+
+    // Flush remaining plain text
+    if let Some(start) = plain_start {
+        // Write up to end of buffer
+        let end = if buf.last() == Some(&b'\n') {
+            buf.len()
+        } else {
+            buf.len()
+        };
+        if let Err(e) = out.write_all(&buf[start..end]) {
             eprintln!("etoon: write error: {}", e);
             return ExitCode::FAILURE;
         }
     }
 
-    if !json_buf.is_empty() {
-        if let Err(e) = writeln!(out, "{}", json_buf) {
+    // Flush unclosed JSON block as-is
+    if in_json_block {
+        let remaining = &buf[block_start..];
+        if let Err(e) = out.write_all(remaining).and_then(|_| out.write_all(b"\n")) {
             eprintln!("etoon: write error: {}", e);
             return ExitCode::FAILURE;
         }
