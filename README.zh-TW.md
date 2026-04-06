@@ -281,6 +281,33 @@ TypeScript SDK **byte-identical**。通過 **111/111** TOON spec fixtures
 涵蓋 primitives、objects、arrays（primitive/tabular/nested/bulleted）、
 whitespace。
 
+## Sigil 前綴 key（`@`、`$`、`#`）
+
+以 `@`、`$`、`#` 開頭的 key 視為合法 identifier — **不需要加引號**。原生支援以下生態系：
+
+| 前綴  | 生態系                                               | 常見 key                                 |
+|-------|------------------------------------------------------|------------------------------------------|
+| `@`   | AWS CloudWatch, Elasticsearch, Serilog, XML→JSON     | `@timestamp`, `@message`, `@version`     |
+| `$`   | MongoDB, JSON Schema, AWS CloudFormation              | `$match`, `$ref`, `$schema`, `$type`     |
+| `#`   | JSON-LD, Azure Resource Manager                       | `#comment`, `#id`                        |
+
+```bash
+# AWS CloudWatch Insights 輸出
+echo '[{"@timestamp":"2026-04-06T12:00:01Z","@message":"POST /api/v1/users 504","statusCode":504}]' | etoon
+# [1]{@timestamp,@message,statusCode}:
+#   "2026-04-06T12:00:01Z",POST /api/v1/users 504,504
+```
+
+### Token 節省實測（5 筆 AWS CloudWatch log）
+
+| Tokenizer（模型系列）                | JSON | TOON | 節省       |
+|--------------------------------------|------|------|-----------|
+| o200k_base (GPT-4o/5/o3)            | 484  | 334  | **31.0%** |
+| cl100k_base (GPT-4/3.5 ≈ Claude)    | 479  | 332  | **30.7%** |
+| tokencalculator.ai（全模型）          | 314  | 189  | **39.8%** |
+
+量越大節省越多 — 50 筆達 **35%+**（tiktoken），因為 tabular header 開銷被攤薄。
+
 ## 進階選項
 
 > 這些是 [TOON spec](https://github.com/toon-format/toon) 提供的可選參數，適用於 **codebase 內的程式呼叫**（Python / Rust library）。CLI 的 `| etoon` pipe 使用預設值，不需要設定這些。

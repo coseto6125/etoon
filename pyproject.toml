@@ -29,7 +29,7 @@ Repository = "https://github.com/coseto6125/etoon"
 Issues = "https://github.com/coseto6125/etoon/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "toons>=0.5.4"]
+dev = ["pytest>=8", "toons>=0.5.4", "tiktoken>=0.7"]
 
 [tool.maturin]
 bindings = "pyo3"

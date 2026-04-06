@@ -196,6 +196,39 @@
       "specSection": "13.4"
     },
     {
+      "name": "folds @-prefixed keys (AWS CloudWatch style)",
+      "input": {
+        "@timestamp": "2026-04-06T12:00:00Z",
+        "@message": {
+          "level": "ERROR",
+          "msg": "timeout"
+        },
+        "requestId": "abc-123"
+      },
+      "expected": "@timestamp: 2026-04-06T12:00:00Z\n@message:\n  level: ERROR\n  msg: timeout\nrequestId: abc-123",
+      "options": {
+        "keyFolding": "safe"
+      },
+      "specSection": "13.4",
+      "note": "@message has 2 children so no fold; @timestamp is scalar so no fold either — but both participate in fold eligibility"
+    },
+    {
+      "name": "folds single-child @-prefixed key into dot-notation",
+      "input": {
+        "@log": {
+          "detail": {
+            "code": 500
+          }
+        }
+      },
+      "expected": "@log.detail.code: 500",
+      "options": {
+        "keyFolding": "safe"
+      },
+      "specSection": "13.4",
+      "note": "@log → detail → code is a single-key chain; result key needs quoting due to @"
+    },
+    {
       "name": "encodes folded chains preserving sibling field order",
       "input": {
         "first": {

@@ -280,6 +280,33 @@ official `toon-format/toon` TypeScript SDK. Passes **111/111** TOON spec
 fixtures covering primitives, objects, arrays (primitive/tabular/nested/bulleted),
 and whitespace.
 
+## Sigil-prefixed keys (`@`, `$`, `#`)
+
+Keys starting with `@`, `$`, or `#` are treated as valid identifiers — **no quoting needed**. This gives native support for:
+
+| Sigil | Ecosystem | Examples |
+|-------|-----------|----------|
+| `@`   | AWS CloudWatch, Elasticsearch, Serilog, XML→JSON | `@timestamp`, `@message`, `@version` |
+| `$`   | MongoDB, JSON Schema, AWS CloudFormation | `$match`, `$ref`, `$schema`, `$type` |
+| `#`   | JSON-LD, Azure Resource Manager | `#comment`, `#id` |
+
+```bash
+# AWS CloudWatch Insights output
+echo '[{"@timestamp":"2026-04-06T12:00:01Z","@message":"POST /api/v1/users 504","statusCode":504}]' | etoon
+# [1]{@timestamp,@message,statusCode}:
+#   "2026-04-06T12:00:01Z",POST /api/v1/users 504,504
+```
+
+### Token savings (5 AWS CloudWatch log entries)
+
+| Tokenizer (model family) | JSON | TOON | Saved |
+|--------------------------|------|------|-------|
+| o200k_base (GPT-4o/5/o3) | 484 | 334 | **31.0%** |
+| cl100k_base (GPT-4/3.5 ≈ Claude) | 479 | 332 | **30.7%** |
+| tokencalculator.ai (all models) | 314 | 189 | **39.8%** |
+
+Savings increase with volume — 50 entries reach **35%+** (tiktoken) as the tabular header is amortized.
+
 ## Advanced options
 
 > These are [TOON spec](https://github.com/toon-format/toon) optional parameters, intended for **programmatic use in your codebase** (Python / Rust library calls). The CLI `| etoon` pipe for LLM workflows uses defaults and does not need these.

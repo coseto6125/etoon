@@ -85,12 +85,8 @@ fn write_object_body<const DELIM: u8>(
 
         if let Some(ref sibs) = siblings {
             if let Some((path, final_v)) = try_fold(k, v, cfg, sibs) {
-                for (i, seg) in path.iter().enumerate() {
-                    if i > 0 {
-                        out.push('.');
-                    }
-                    out.push_str(seg);
-                }
+                let joined: String = path.join(".");
+                write_key(&joined, out);
                 write_value_after_key::<DELIM>(final_v, indent, cfg, out);
                 continue;
             }
@@ -430,18 +426,31 @@ fn write_key(k: &str, out: &mut String) {
     }
 }
 
-/// Keys must match TOON identifier pattern: `[a-zA-Z_][a-zA-Z0-9_.]*`.
+/// Keys must match TOON identifier pattern: `[@$#a-zA-Z_][a-zA-Z0-9_.]*`.
+/// Sigil prefixes `@`, `$`, `#` are allowed for ecosystem compatibility:
+/// - `@` : AWS CloudWatch, Elasticsearch, Serilog, XML→JSON
+/// - `$` : MongoDB, JSON Schema, AWS CloudFormation
+/// - `#` : JSON-LD, Azure Resource Manager
 #[inline]
 fn key_needs_quoting(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
     let bytes = s.as_bytes();
-    let first = bytes[0];
+    let start = match bytes[0] {
+        b'@' | b'$' | b'#' => {
+            if bytes.len() < 2 {
+                return true; // bare sigil needs quoting
+            }
+            1
+        }
+        _ => 0,
+    };
+    let first = bytes[start];
     if !(first.is_ascii_alphabetic() || first == b'_') {
         return true;
     }
-    for &b in &bytes[1..] {
+    for &b in &bytes[start + 1..] {
         if !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.') {
             return true;
         }
