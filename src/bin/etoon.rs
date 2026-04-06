@@ -276,13 +276,7 @@ fn run_log_from_bytes(buf: &[u8], output_path: Option<String>) -> ExitCode {
 
     // Flush remaining plain text
     if let Some(start) = plain_start {
-        // Write up to end of buffer
-        let end = if buf.last() == Some(&b'\n') {
-            buf.len()
-        } else {
-            buf.len()
-        };
-        if let Err(e) = out.write_all(&buf[start..end]) {
+        if let Err(e) = out.write_all(&buf[start..]) {
             eprintln!("etoon: write error: {}", e);
             return ExitCode::FAILURE;
         }

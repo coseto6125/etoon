@@ -1,5 +1,7 @@
 # etoon
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/coseto6125/etoon/badge)](https://scorecard.dev/viewer/?uri=github.com/coseto6125/etoon)
+
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
 **8× faster than `toons`**, **2.7× faster than the official TS SDK**, byte-identical output.
@@ -55,20 +57,94 @@ echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
 
 ## Install
 
-### Python
+### CLI binary (recommended for LLM workflows)
+
+**Pre-built — no Rust required:**
+
+Download from [GitHub Releases](https://github.com/coseto6125/etoon/releases) (Linux/macOS/Windows, x86_64/aarch64):
+
+<details>
+<summary><b>Linux</b></summary>
+
+```bash
+# x86_64
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-x86_64 -o etoon
+
+# Apple Silicon / ARM server (aarch64)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-aarch64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/   # or ~/.local/bin/
+```
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+```bash
+# Apple Silicon (M1/M2/M3/M4)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-aarch64 -o etoon
+
+# Intel Mac
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-x86_64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/
+```
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+```powershell
+# PowerShell
+Invoke-WebRequest -Uri "https://github.com/coseto6125/etoon/releases/latest/download/etoon-windows-x86_64.exe" -OutFile "etoon.exe"
+
+# Move to a directory in your PATH, e.g.:
+Move-Item etoon.exe "$env:USERPROFILE\.local\bin\etoon.exe"
+```
+</details>
+
+<details>
+<summary><b>Verify download (optional)</b></summary>
+
+Each release includes `SHA256SUMS.txt` and [Sigstore](https://www.sigstore.dev) cosign signatures to verify the binary was built by GitHub Actions from this repo.
+
+```bash
+# 1. Verify checksum
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/SHA256SUMS.txt -o SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 2. Verify sigstore signature (requires cosign: https://docs.sigstore.dev/cosign/system_config/installation/)
+BINARY=etoon-linux-x86_64   # change to your platform
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.sig"
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.pem"
+cosign verify-blob "$BINARY" --signature "${BINARY}.sig" --certificate "${BINARY}.pem" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp "github.com/coseto6125/etoon"
+```
+
+macOS unsigned binary note: `xattr -d com.apple.quarantine etoon` to bypass Gatekeeper.
+</details>
+
+**From source (requires Rust toolchain):**
+
+```bash
+cargo install etoon
+```
+
+### Python library
+
 ```bash
 pip install etoon
 ```
 
+> This installs the Python binding (`etoon.dumps()`), **not** the CLI binary. For the CLI, use one of the methods above.
+
 ### Rust library
+
 ```bash
 cargo add etoon --no-default-features
-```
-
-### CLI binary
-Download from [GitHub Releases](https://github.com/coseto6125/etoon/releases), or:
-```bash
-cargo install etoon
 ```
 
 ## Usage
@@ -206,8 +282,10 @@ and whitespace.
 
 ## Advanced options
 
+> These are [TOON spec](https://github.com/toon-format/toon) optional parameters, intended for **programmatic use in your codebase** (Python / Rust library calls). The CLI `| etoon` pipe for LLM workflows uses defaults and does not need these.
+
 ```python
-# Custom delimiter (saves tokens when values contain commas)
+# Custom delimiter (when values contain commas)
 etoon.dumps(data, delimiter="|")   # or "\t"
 
 # Key folding: collapse {a:{b:{c:1}}} → "a.b.c: 1"

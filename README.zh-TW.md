@@ -1,5 +1,7 @@
 # etoon
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/coseto6125/etoon/badge)](https://scorecard.dev/viewer/?uri=github.com/coseto6125/etoon)
+
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
 **比 `toons` 快 8 倍**、**比官方 TS SDK 快 2.7 倍**，輸出 byte-identical。
@@ -56,20 +58,94 @@ echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
 
 ## 安裝
 
-### Python
+### CLI binary（LLM 工作流推薦）
+
+**預編譯版 — 不需要 Rust：**
+
+從 [GitHub Releases](https://github.com/coseto6125/etoon/releases) 下載（Linux/macOS/Windows，x86_64/aarch64）：
+
+<details>
+<summary><b>Linux</b></summary>
+
+```bash
+# x86_64
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-x86_64 -o etoon
+
+# Apple Silicon / ARM 伺服器 (aarch64)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-aarch64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/   # 或 ~/.local/bin/
+```
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+```bash
+# Apple Silicon (M1/M2/M3/M4)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-aarch64 -o etoon
+
+# Intel Mac
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-x86_64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/
+```
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+```powershell
+# PowerShell
+Invoke-WebRequest -Uri "https://github.com/coseto6125/etoon/releases/latest/download/etoon-windows-x86_64.exe" -OutFile "etoon.exe"
+
+# 移動到 PATH 目錄，例如：
+Move-Item etoon.exe "$env:USERPROFILE\.local\bin\etoon.exe"
+```
+</details>
+
+<details>
+<summary><b>驗證下載（可選）</b></summary>
+
+每個 release 都附帶 `SHA256SUMS.txt` 和 [Sigstore](https://www.sigstore.dev) cosign 簽名，可驗證 binary 由 GitHub Actions 從本 repo 建構。
+
+```bash
+# 1. 驗證 checksum
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/SHA256SUMS.txt -o SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 2. 驗證 sigstore 簽名（需安裝 cosign：https://docs.sigstore.dev/cosign/system_config/installation/）
+BINARY=etoon-linux-x86_64   # 改成你的平台
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.sig"
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.pem"
+cosign verify-blob "$BINARY" --signature "${BINARY}.sig" --certificate "${BINARY}.pem" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp "github.com/coseto6125/etoon"
+```
+
+macOS 未簽名 binary 提示：`xattr -d com.apple.quarantine etoon` 可繞過 Gatekeeper。
+</details>
+
+**從原始碼編譯（需要 Rust toolchain）：**
+
+```bash
+cargo install etoon
+```
+
+### Python library
+
 ```bash
 pip install etoon
 ```
 
+> 這會安裝 Python binding（`etoon.dumps()`），**不包含** CLI binary。CLI 請用上面的方式安裝。
+
 ### Rust library
+
 ```bash
 cargo add etoon --no-default-features
-```
-
-### CLI binary
-從 [GitHub Releases](https://github.com/coseto6125/etoon/releases) 下載，或：
-```bash
-cargo install etoon
 ```
 
 ## 使用
@@ -207,8 +283,10 @@ whitespace。
 
 ## 進階選項
 
+> 這些是 [TOON spec](https://github.com/toon-format/toon) 提供的可選參數，適用於 **codebase 內的程式呼叫**（Python / Rust library）。CLI 的 `| etoon` pipe 使用預設值，不需要設定這些。
+
 ```python
-# 自訂分隔符（資料含逗號時可省 token）
+# 自訂分隔符（資料含逗號時使用）
 etoon.dumps(data, delimiter="|")   # 或 "\t"
 
 # Key folding：壓扁 {a:{b:{c:1}}} → "a.b.c: 1"

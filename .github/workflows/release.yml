@@ -172,7 +172,7 @@ jobs:
         run: cargo publish --no-default-features
 
   # ========================================================================
-  # Create GitHub Release with CLI binaries (on tag push)
+  # Create GitHub Release with CLI binaries + checksums + signatures
   # ========================================================================
   github-release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -180,16 +180,41 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write   # Required for sigstore cosign OIDC
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: "cli-*"
           path: cli
           merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd cli
+          sha256sum * > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign binaries with cosign (keyless)
+        run: |
+          cd cli
+          for f in *; do
+            cosign sign-blob --yes "$f" --output-signature "../${f}.sig" --output-certificate "../${f}.pem"
+          done
+
+      - name: Collect release assets
+        run: |
+          mkdir release
+          cp cli/* release/
+          cp SHA256SUMS.txt release/
+          cp *.sig *.pem release/
+
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
-          files: cli/*
+          files: release/*
           draft: false
           prerelease: false
           generate_release_notes: true
