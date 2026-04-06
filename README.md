@@ -306,7 +306,7 @@ echo '[{"@timestamp":"2026-04-06T12:00:01Z","@message":"POST /api/v1/users 504",
 | o200k_base (GPT-4o/5/o3) | 484 | 334 | **31.0%** |
 | cl100k_base (GPT-4/3.5 ≈ Claude) | 479 | 332 | **30.7%** |
 
-**[tokencalculator.ai](https://tokencalculator.ai/) (online, per-model cost):**
+**[tokencalculator.ai](https://tokencalculator.ai/) (online, estimated per-model cost):**
 
 | Model | JSON | TOON | Saved |
 |-------|------|------|-------|
