@@ -17,7 +17,7 @@ Measured on a 50-doc payload (7480 bytes JSON → 4012 bytes TOON):
 
 | Encoder                    | Time    | vs etoon |
 |----------------------------|---------|----------|
-| **etoon (Rust, native)**   | 12.1 μs | **1.00×** |
+| **etoon (Rust, native)**   | 11.9 μs | **1.00×** |
 | **etoon (Python, PyO3)**   | 15.4 μs | 1.27×    |
 | @toon-format/toon (TS SDK) | 35.6 μs | 2.94×    |
 | py-rtoon                   | 85.9 μs | 7.10×    |
