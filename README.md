@@ -17,7 +17,7 @@ Measured on a 50-doc payload (7480 bytes JSON → 4012 bytes TOON):
 
 | Encoder                    | Time    | vs etoon |
 |----------------------------|---------|----------|
-| **etoon (Rust, native)**   | 12.1 μs | **1.00×** |
+| **etoon (Rust, native)**   | 11.9 μs | **1.00×** |
 | **etoon (Python, PyO3)**   | 15.4 μs | 1.27×    |
 | @toon-format/toon (TS SDK) | 35.6 μs | 2.94×    |
 | py-rtoon                   | 85.9 μs | 7.10×    |
@@ -279,6 +279,45 @@ Output is byte-identical to the `toons` Python package (Apache 2.0) and the
 official `toon-format/toon` TypeScript SDK. Passes **111/111** TOON spec
 fixtures covering primitives, objects, arrays (primitive/tabular/nested/bulleted),
 and whitespace.
+
+## Sigil-prefixed keys (`@`, `$`, `#`)
+
+Keys starting with `@`, `$`, or `#` are treated as valid identifiers — **no quoting needed**. This gives native support for:
+
+| Sigil | Ecosystem | Examples |
+|-------|-----------|----------|
+| `@`   | AWS CloudWatch, Elasticsearch, Serilog, XML→JSON | `@timestamp`, `@message`, `@version` |
+| `$`   | MongoDB, JSON Schema, AWS CloudFormation | `$match`, `$ref`, `$schema`, `$type` |
+| `#`   | JSON-LD, Azure Resource Manager | `#comment`, `#id` |
+
+```bash
+# AWS CloudWatch Insights output
+echo '[{"@timestamp":"2026-04-06T12:00:01Z","@message":"POST /api/v1/users 504","statusCode":504}]' | etoon
+# [1]{@timestamp,@message,statusCode}:
+#   "2026-04-06T12:00:01Z",POST /api/v1/users 504,504
+```
+
+### Token savings (5 AWS CloudWatch log entries)
+
+**tiktoken (offline, BPE tokenizer):**
+
+| Tokenizer (model family) | JSON | TOON | Saved |
+|--------------------------|------|------|-------|
+| o200k_base (GPT-4o/5/o3) | 484 | 334 | **31.0%** |
+| cl100k_base (GPT-4/3.5 ≈ Claude) | 479 | 332 | **30.7%** |
+
+**[tokencalculator.ai](https://tokencalculator.ai/) (online, estimated per-model cost):**
+
+| Model | JSON | TOON | Saved |
+|-------|------|------|-------|
+| Est. Tokens | 314 | 189 | **39.8%** |
+| OpenAI GPT-5.4 | $0.000785 | $0.000473 | 39.7% |
+| Claude Opus 4.6 | $0.001570 | $0.000945 | 39.8% |
+| Gemini 3.1 Pro | $0.000628 | $0.000378 | 39.8% |
+| DeepSeek V3.2 | $0.000088 | $0.000053 | 39.8% |
+| Grok 4.20 | $0.000063 | $0.000038 | 39.7% |
+
+Savings increase with volume — 50 entries reach **35%+** (tiktoken) as the tabular header is amortized.
 
 ## Advanced options
 
