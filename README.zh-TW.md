@@ -8,7 +8,7 @@
 
 ## 效能
 
-50 筆 neptune payload 實測（7480 bytes JSON → 4012 bytes TOON）：
+50 筆 payload 實測（7480 bytes JSON → 4012 bytes TOON）：
 
 | 編碼器                     | 時間     | 相對倍數   |
 |----------------------------|----------|-----------|
@@ -20,10 +20,39 @@
 
 **CLI 透過 stdin pipe**（Claude / Bash 工作流）：
 
-| CLI           | 每次延遲  | 相對倍數   |
-|---------------|----------|-----------|
-| **etoon**     | 0.57 ms  | **1.00×** |
-| 官方 toon     | 50.7 ms  | 慢 89×    |
+| CLI           | 每次延遲  | 相對倍數    |
+|---------------|----------|------------|
+| **etoon**     | 0.43 ms  | **1.00×**  |
+| 官方 toon     | 50.7 ms  | 慢 118×    |
+
+**Auto-detect 模式**（v0.1.4+）— 自動辨識 JSON、混合 log、純文字：
+
+| 輸入                            | 大小   | 每次延遲  |
+|---------------------------------|--------|----------|
+| 純 JSON（1000 objects）         | 120KB  | 0.73 ms  |
+| 混合 log（5K JSON + 5K 文字行） | 600KB  | 1.93 ms  |
+| 純文字 pass-through             | 300KB  | 0.56 ms  |
+
+### 自行測試
+
+```bash
+# Encoder core benchmark（Rust native，不含 I/O）
+cargo run --release --bin bench payload.json
+
+# CLI stdin pipe benchmark
+# 產生測試資料
+python3 -c "
+import json
+data = [{'id': i, 'name': f'item_{i}', 'price': i*1.5, 'tags': ['a','b','c']} for i in range(1000)]
+print(json.dumps(data))
+" > /tmp/bench.json
+
+# 計時（200 次取平均）
+start=$(date +%s%N)
+for i in $(seq 1 200); do etoon < /tmp/bench.json > /dev/null; done
+end=$(date +%s%N)
+echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
+```
 
 ## 安裝
 
@@ -59,11 +88,13 @@ print(etoon.dumps(docs))
 ```bash
 curl -s https://api.example.com/data | etoon
 cat data.json | etoon -o output.toon
+aws logs tail /ecs/my-service | etoon        # 混合 log：JSON 區塊 → TOON，文字 → pass-through
+etoon --strict < data.json                   # 非 JSON 時報錯（舊行為）
 ```
 
 ### LLM agent 使用（Claude Code 等）
 
-在任何會輸出 JSON 的 shell 指令後接 `| etoon`，讀取時省 LLM token。轉換
+在任何指令末尾接 `| etoon`，讀取時省 LLM token。轉換
 無損，TOON 格式比 JSON 精簡（通常省 40-60% token）。
 
 ```bash
@@ -74,13 +105,12 @@ kubectl get pods -o json | etoon
 
 **LLM 用法規則**：
 - 終端專用 — `jq` / `grep` / `awk` 要放在 `| etoon` **之前**，絕不在後
-- 非 JSON 輸入會原樣 pass through（預設開啟安全）
-- byte-exact diff 或極小單 blob 輸出可跳過
-- `etoon` fail（極罕見，JSON 壞格式）時無 pipe 重跑
+- 自動辨識 JSON / 混合 log / 純文字 — 任何指令都可安全附加
+- 僅在 byte-exact diff 或單值查詢（1-2 行）時跳過
 
 `CLAUDE.md` 範例規則：
-> 任何會輸出 JSON 的 bash 指令尾端預設加 `| etoon`，放在 pipeline 最後。
-> 失敗時移除 pipe 重跑。
+> 任何指令的最終輸出段預設加 `| etoon`。
+> 僅在 byte-exact diff 或單值查詢時跳過。
 
 ### Rust
 ```rust

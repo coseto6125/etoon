@@ -8,7 +8,7 @@ Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation
 
 ## Performance
 
-Measured on a 50-doc "neptune" payload (7480 bytes JSON → 4012 bytes TOON):
+Measured on a 50-doc payload (7480 bytes JSON → 4012 bytes TOON):
 
 | Encoder                    | Time    | vs etoon |
 |----------------------------|---------|----------|
@@ -22,8 +22,36 @@ Measured on a 50-doc "neptune" payload (7480 bytes JSON → 4012 bytes TOON):
 
 | CLI           | Per call | Relative |
 |---------------|----------|----------|
-| **etoon**     | 0.57 ms  | **1.00×** |
-| official toon | 50.7 ms  | 89× slower |
+| **etoon**     | 0.43 ms  | **1.00×** |
+| official toon | 50.7 ms  | 118× slower |
+
+**Auto-detect mode** (v0.1.4+) — handles JSON, mixed log, and plain text:
+
+| Input                          | Size  | Per call |
+|--------------------------------|-------|----------|
+| Pure JSON (1000 objects)       | 120KB | 0.73 ms  |
+| Mixed log (5K JSON + 5K text) | 600KB | 1.93 ms  |
+| Plain text pass-through        | 300KB | 0.56 ms  |
+
+### Reproduce
+
+```bash
+# Encoder core benchmark (Rust native, no I/O)
+cargo run --release --bin bench payload.json
+
+# CLI stdin pipe benchmark
+python3 -c "
+import json
+data = [{'id': i, 'name': f'item_{i}', 'price': i*1.5, 'tags': ['a','b','c']} for i in range(1000)]
+print(json.dumps(data))
+" > /tmp/bench.json
+
+# Time 200 runs
+start=$(date +%s%N)
+for i in $(seq 1 200); do etoon < /tmp/bench.json > /dev/null; done
+end=$(date +%s%N)
+echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
+```
 
 ## Install
 
@@ -59,6 +87,8 @@ print(etoon.dumps(docs))
 ```bash
 curl -s https://api.example.com/data | etoon
 cat data.json | etoon -o output.toon
+aws logs tail /ecs/my-service | etoon        # mixed log: JSON blocks → TOON, text → pass-through
+etoon --strict < data.json                   # error on non-JSON (old behavior)
 ```
 
 ### LLM agents (Claude Code, etc.)
@@ -75,13 +105,12 @@ kubectl get pods -o json | etoon
 
 **Pipeline rules for LLM use**:
 - Terminal-only — `jq` / `grep` / `awk` must come *before* `| etoon`, never after
-- Non-JSON input passes through unchanged (safe to default-on)
-- Skip for byte-exact diff comparisons or tiny single-blob outputs
-- If `etoon` fails (rare, on malformed JSON), re-run without the pipe
+- Auto-detects JSON vs mixed log vs plain text — safe to append to any command
+- Skip only for byte-exact diff comparisons or single-value lookups (1-2 lines)
 
 Example Claude Code rule in `CLAUDE.md`:
-> Append `| etoon` to any JSON-emitting bash command by default. Place it
-> at the very end of the pipeline. Re-run without pipe if it fails.
+> Append `| etoon` as the final pipe segment of any command whose output
+> reaches the conversation. Skip only for byte-exact diff or single-value lookup.
 
 ### Rust
 ```rust
