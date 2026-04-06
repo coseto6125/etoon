@@ -299,11 +299,23 @@ echo '[{"@timestamp":"2026-04-06T12:00:01Z","@message":"POST /api/v1/users 504",
 
 ### Token savings (5 AWS CloudWatch log entries)
 
+**tiktoken (offline, BPE tokenizer):**
+
 | Tokenizer (model family) | JSON | TOON | Saved |
 |--------------------------|------|------|-------|
 | o200k_base (GPT-4o/5/o3) | 484 | 334 | **31.0%** |
 | cl100k_base (GPT-4/3.5 ≈ Claude) | 479 | 332 | **30.7%** |
-| tokencalculator.ai (all models) | 314 | 189 | **39.8%** |
+
+**[tokencalculator.ai](https://tokencalculator.ai/) (online, per-model cost):**
+
+| Model | JSON | TOON | Saved |
+|-------|------|------|-------|
+| Est. Tokens | 314 | 189 | **39.8%** |
+| OpenAI GPT-5.4 | $0.000785 | $0.000473 | 39.7% |
+| Claude Opus 4.6 | $0.001570 | $0.000945 | 39.8% |
+| Gemini 3.1 Pro | $0.000628 | $0.000378 | 39.8% |
+| DeepSeek V3.2 | $0.000088 | $0.000053 | 39.8% |
+| Grok 4.20 | $0.000063 | $0.000038 | 39.7% |
 
 Savings increase with volume — 50 entries reach **35%+** (tiktoken) as the tabular header is amortized.
 
