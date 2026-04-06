@@ -25,7 +25,7 @@
 | **etoon**     | 0.43 ms  | **1.00×**  |
 | 官方 toon     | 50.7 ms  | 慢 118×    |
 
-**Auto-detect 模式**（v0.1.4+）— 自動辨識 JSON、混合 log、純文字：
+**Auto-detect 模式**（v0.2.0+）— 自動辨識 JSON、混合 log、純文字：
 
 | 輸入                            | 大小   | 每次延遲  |
 |---------------------------------|--------|----------|
@@ -92,25 +92,93 @@ aws logs tail /ecs/my-service | etoon        # 混合 log：JSON 區塊 → TOON
 etoon --strict < data.json                   # 非 JSON 時報錯（舊行為）
 ```
 
-### LLM agent 使用（Claude Code 等）
+### LLM Agent — 設定指南
 
-在任何指令末尾接 `| etoon`，讀取時省 LLM token。轉換
-無損，TOON 格式比 JSON 精簡（通常省 40-60% token）。
+在 shell 指令末尾加 `| etoon`，讓 AI 讀 TOON 而非原始 JSON — **省 40-60% token**，無損，自動辨識輸入格式。
 
 ```bash
 gh pr list --json number,title,author | etoon
-aws s3api list-buckets | etoon
+aws logs tail /ecs/my-service | etoon
 kubectl get pods -o json | etoon
 ```
 
-**LLM 用法規則**：
-- 終端專用 — `jq` / `grep` / `awk` 要放在 `| etoon` **之前**，絕不在後
+**規則**：
+- `| etoon` 放在 pipeline **最後** — `jq` / `grep` / `awk` 在前，絕不在後
 - 自動辨識 JSON / 混合 log / 純文字 — 任何指令都可安全附加
-- 僅在 byte-exact diff 或單值查詢（1-2 行）時跳過
+- 僅跳過：byte-exact diff、單值查詢（1-2 行）
 
-`CLAUDE.md` 範例規則：
-> 任何指令的最終輸出段預設加 `| etoon`。
-> 僅在 byte-exact diff 或單值查詢時跳過。
+---
+
+#### Claude Code
+
+加到專案根目錄的 `CLAUDE.md`（或 `.claude/CLAUDE.md`）：
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any Bash command whose output
+reaches the conversation. etoon auto-detects JSON, mixed log, and plain text.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Cursor
+
+加到 `.cursor/rules/etoon.mdc`：
+
+````markdown
+---
+description: Compress shell output with etoon
+globs:
+alwaysApply: true
+---
+
+When running shell/terminal commands, append `| etoon` as the last pipe segment.
+etoon auto-detects JSON, mixed log, and plain text — safe for any command.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### OpenAI Codex CLI
+
+加到專案根目錄的 `AGENTS.md`：
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Windsurf / 其他 AI 編輯器
+
+加到 `.windsurfrules`（Windsurf）或對應的規則檔：
+
+````markdown
+When executing shell commands, always append `| etoon` at the end of the pipeline.
+etoon auto-detects input format: JSON → compact TOON, mixed log → JSON blocks encoded + text pass-through, plain text → unchanged.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Gemini CLI
+
+加到專案根目錄的 `GEMINI.md`：
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### ChatGPT / Custom GPTs
+
+加到 system prompt 或自訂指令：
+
+```
+When generating shell commands for the user, append `| etoon` as the last pipe segment.
+etoon converts JSON to TOON (40-60% fewer tokens). Non-JSON passes through unchanged.
+```
 
 ### Rust
 ```rust

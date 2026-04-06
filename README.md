@@ -25,7 +25,7 @@ Measured on a 50-doc payload (7480 bytes JSON → 4012 bytes TOON):
 | **etoon**     | 0.43 ms  | **1.00×** |
 | official toon | 50.7 ms  | 118× slower |
 
-**Auto-detect mode** (v0.1.4+) — handles JSON, mixed log, and plain text:
+**Auto-detect mode** (v0.2.0+) — handles JSON, mixed log, and plain text:
 
 | Input                          | Size  | Per call |
 |--------------------------------|-------|----------|
@@ -91,26 +91,93 @@ aws logs tail /ecs/my-service | etoon        # mixed log: JSON blocks → TOON, 
 etoon --strict < data.json                   # error on non-JSON (old behavior)
 ```
 
-### LLM agents (Claude Code, etc.)
+### LLM Agents — Setup Guide
 
-Add `| etoon` to any JSON-emitting shell command to save LLM tokens when
-reading the output. The transformation is lossless and the TOON format is
-far more compact (40-60% fewer tokens typical).
+Append `| etoon` to shell commands so the AI reads TOON instead of raw JSON — **40-60% fewer tokens**, lossless, auto-detects input format.
 
 ```bash
 gh pr list --json number,title,author | etoon
-aws s3api list-buckets | etoon
+aws logs tail /ecs/my-service | etoon
 kubectl get pods -o json | etoon
 ```
 
-**Pipeline rules for LLM use**:
-- Terminal-only — `jq` / `grep` / `awk` must come *before* `| etoon`, never after
-- Auto-detects JSON vs mixed log vs plain text — safe to append to any command
-- Skip only for byte-exact diff comparisons or single-value lookups (1-2 lines)
+**Rules**:
+- `| etoon` goes at the **end** of the pipeline — `jq` / `grep` / `awk` before it, never after
+- Auto-detects JSON / mixed log / plain text — safe to append to **any** command
+- Skip only for: byte-exact diff, single-value lookups (1-2 lines)
 
-Example Claude Code rule in `CLAUDE.md`:
-> Append `| etoon` as the final pipe segment of any command whose output
-> reaches the conversation. Skip only for byte-exact diff or single-value lookup.
+---
+
+#### Claude Code
+
+Add to `CLAUDE.md` (or `.claude/CLAUDE.md`) in your project root:
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any Bash command whose output
+reaches the conversation. etoon auto-detects JSON, mixed log, and plain text.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Cursor
+
+Add to `.cursor/rules/etoon.mdc`:
+
+````markdown
+---
+description: Compress shell output with etoon
+globs:
+alwaysApply: true
+---
+
+When running shell/terminal commands, append `| etoon` as the last pipe segment.
+etoon auto-detects JSON, mixed log, and plain text — safe for any command.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### OpenAI Codex CLI
+
+Add to `AGENTS.md` in your project root:
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Windsurf / Other AI Editors
+
+Add to `.windsurfrules` (Windsurf) or the equivalent rules file:
+
+````markdown
+When executing shell commands, always append `| etoon` at the end of the pipeline.
+etoon auto-detects input format: JSON → compact TOON, mixed log → JSON blocks encoded + text pass-through, plain text → unchanged.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Gemini CLI
+
+Add to `GEMINI.md` in your project root:
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### ChatGPT / Custom GPTs
+
+Add to system prompt or custom instructions:
+
+```
+When generating shell commands for the user, append `| etoon` as the last pipe segment.
+etoon converts JSON to TOON (40-60% fewer tokens). Non-JSON passes through unchanged.
+```
 
 ### Rust
 ```rust
