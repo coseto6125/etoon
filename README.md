@@ -1,5 +1,7 @@
 # etoon
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/coseto6125/etoon/badge)](https://scorecard.dev/viewer/?uri=github.com/coseto6125/etoon)
+
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
 **8× faster than `toons`**, **2.7× faster than the official TS SDK**, byte-identical output.
@@ -8,7 +10,7 @@ Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation
 
 ## Performance
 
-Measured on a 50-doc "neptune" payload (7480 bytes JSON → 4012 bytes TOON):
+Measured on a 50-doc payload (7480 bytes JSON → 4012 bytes TOON):
 
 | Encoder                    | Time    | vs etoon |
 |----------------------------|---------|----------|
@@ -22,25 +24,127 @@ Measured on a 50-doc "neptune" payload (7480 bytes JSON → 4012 bytes TOON):
 
 | CLI           | Per call | Relative |
 |---------------|----------|----------|
-| **etoon**     | 0.57 ms  | **1.00×** |
-| official toon | 50.7 ms  | 89× slower |
+| **etoon**     | 0.43 ms  | **1.00×** |
+| official toon | 50.7 ms  | 118× slower |
+
+**Auto-detect mode** (v0.2.0+) — handles JSON, mixed log, and plain text:
+
+| Input                          | Size  | Per call |
+|--------------------------------|-------|----------|
+| Pure JSON (1000 objects)       | 120KB | 0.73 ms  |
+| Mixed log (5K JSON + 5K text) | 600KB | 1.93 ms  |
+| Plain text pass-through        | 300KB | 0.56 ms  |
+
+### Reproduce
+
+```bash
+# Encoder core benchmark (Rust native, no I/O)
+cargo run --release --bin bench payload.json
+
+# CLI stdin pipe benchmark
+python3 -c "
+import json
+data = [{'id': i, 'name': f'item_{i}', 'price': i*1.5, 'tags': ['a','b','c']} for i in range(1000)]
+print(json.dumps(data))
+" > /tmp/bench.json
+
+# Time 200 runs
+start=$(date +%s%N)
+for i in $(seq 1 200); do etoon < /tmp/bench.json > /dev/null; done
+end=$(date +%s%N)
+echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
+```
 
 ## Install
 
-### Python
+### CLI binary (recommended for LLM workflows)
+
+**Pre-built — no Rust required:**
+
+Download from [GitHub Releases](https://github.com/coseto6125/etoon/releases) (Linux/macOS/Windows, x86_64/aarch64):
+
+<details>
+<summary><b>Linux</b></summary>
+
+```bash
+# x86_64
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-x86_64 -o etoon
+
+# Apple Silicon / ARM server (aarch64)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-aarch64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/   # or ~/.local/bin/
+```
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+```bash
+# Apple Silicon (M1/M2/M3/M4)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-aarch64 -o etoon
+
+# Intel Mac
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-x86_64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/
+```
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+```powershell
+# PowerShell
+Invoke-WebRequest -Uri "https://github.com/coseto6125/etoon/releases/latest/download/etoon-windows-x86_64.exe" -OutFile "etoon.exe"
+
+# Move to a directory in your PATH, e.g.:
+Move-Item etoon.exe "$env:USERPROFILE\.local\bin\etoon.exe"
+```
+</details>
+
+<details>
+<summary><b>Verify download (optional)</b></summary>
+
+Each release includes `SHA256SUMS.txt` and [Sigstore](https://www.sigstore.dev) cosign signatures to verify the binary was built by GitHub Actions from this repo.
+
+```bash
+# 1. Verify checksum
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/SHA256SUMS.txt -o SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 2. Verify sigstore signature (requires cosign: https://docs.sigstore.dev/cosign/system_config/installation/)
+BINARY=etoon-linux-x86_64   # change to your platform
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.sig"
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.pem"
+cosign verify-blob "$BINARY" --signature "${BINARY}.sig" --certificate "${BINARY}.pem" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp "github.com/coseto6125/etoon"
+```
+
+macOS unsigned binary note: `xattr -d com.apple.quarantine etoon` to bypass Gatekeeper.
+</details>
+
+**From source (requires Rust toolchain):**
+
+```bash
+cargo install etoon
+```
+
+### Python library
+
 ```bash
 pip install etoon
 ```
 
+> This installs the Python binding (`etoon.dumps()`), **not** the CLI binary. For the CLI, use one of the methods above.
+
 ### Rust library
+
 ```bash
 cargo add etoon --no-default-features
-```
-
-### CLI binary
-Download from [GitHub Releases](https://github.com/coseto6125/etoon/releases), or:
-```bash
-cargo install etoon
 ```
 
 ## Usage
@@ -59,29 +163,97 @@ print(etoon.dumps(docs))
 ```bash
 curl -s https://api.example.com/data | etoon
 cat data.json | etoon -o output.toon
+aws logs tail /ecs/my-service | etoon        # mixed log: JSON blocks → TOON, text → pass-through
+etoon --strict < data.json                   # error on non-JSON (old behavior)
 ```
 
-### LLM agents (Claude Code, etc.)
+### LLM Agents — Setup Guide
 
-Add `| etoon` to any JSON-emitting shell command to save LLM tokens when
-reading the output. The transformation is lossless and the TOON format is
-far more compact (40-60% fewer tokens typical).
+Append `| etoon` to shell commands so the AI reads TOON instead of raw JSON — **40-60% fewer tokens**, lossless, auto-detects input format.
 
 ```bash
 gh pr list --json number,title,author | etoon
-aws s3api list-buckets | etoon
+aws logs tail /ecs/my-service | etoon
 kubectl get pods -o json | etoon
 ```
 
-**Pipeline rules for LLM use**:
-- Terminal-only — `jq` / `grep` / `awk` must come *before* `| etoon`, never after
-- Non-JSON input passes through unchanged (safe to default-on)
-- Skip for byte-exact diff comparisons or tiny single-blob outputs
-- If `etoon` fails (rare, on malformed JSON), re-run without the pipe
+**Rules**:
+- `| etoon` goes at the **end** of the pipeline — `jq` / `grep` / `awk` before it, never after
+- Auto-detects JSON / mixed log / plain text — safe to append to **any** command
+- Skip only for: byte-exact diff, single-value lookups (1-2 lines)
 
-Example Claude Code rule in `CLAUDE.md`:
-> Append `| etoon` to any JSON-emitting bash command by default. Place it
-> at the very end of the pipeline. Re-run without pipe if it fails.
+---
+
+#### Claude Code
+
+Add to `CLAUDE.md` (or `.claude/CLAUDE.md`) in your project root:
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any Bash command whose output
+reaches the conversation. etoon auto-detects JSON, mixed log, and plain text.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Cursor
+
+Add to `.cursor/rules/etoon.mdc`:
+
+````markdown
+---
+description: Compress shell output with etoon
+globs:
+alwaysApply: true
+---
+
+When running shell/terminal commands, append `| etoon` as the last pipe segment.
+etoon auto-detects JSON, mixed log, and plain text — safe for any command.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### OpenAI Codex CLI
+
+Add to `AGENTS.md` in your project root:
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Windsurf / Other AI Editors
+
+Add to `.windsurfrules` (Windsurf) or the equivalent rules file:
+
+````markdown
+When executing shell commands, always append `| etoon` at the end of the pipeline.
+etoon auto-detects input format: JSON → compact TOON, mixed log → JSON blocks encoded + text pass-through, plain text → unchanged.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Gemini CLI
+
+Add to `GEMINI.md` in your project root:
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### ChatGPT / Custom GPTs
+
+Add to system prompt or custom instructions:
+
+```
+When generating shell commands for the user, append `| etoon` as the last pipe segment.
+etoon converts JSON to TOON (40-60% fewer tokens). Non-JSON passes through unchanged.
+```
 
 ### Rust
 ```rust
@@ -110,8 +282,10 @@ and whitespace.
 
 ## Advanced options
 
+> These are [TOON spec](https://github.com/toon-format/toon) optional parameters, intended for **programmatic use in your codebase** (Python / Rust library calls). The CLI `| etoon` pipe for LLM workflows uses defaults and does not need these.
+
 ```python
-# Custom delimiter (saves tokens when values contain commas)
+# Custom delimiter (when values contain commas)
 etoon.dumps(data, delimiter="|")   # or "\t"
 
 # Key folding: collapse {a:{b:{c:1}}} → "a.b.c: 1"

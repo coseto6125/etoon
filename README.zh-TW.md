@@ -1,5 +1,7 @@
 # etoon
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/coseto6125/etoon/badge)](https://scorecard.dev/viewer/?uri=github.com/coseto6125/etoon)
+
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
 **比 `toons` 快 8 倍**、**比官方 TS SDK 快 2.7 倍**，輸出 byte-identical。
@@ -8,7 +10,7 @@
 
 ## 效能
 
-50 筆 neptune payload 實測（7480 bytes JSON → 4012 bytes TOON）：
+50 筆 payload 實測（7480 bytes JSON → 4012 bytes TOON）：
 
 | 編碼器                     | 時間     | 相對倍數   |
 |----------------------------|----------|-----------|
@@ -20,27 +22,130 @@
 
 **CLI 透過 stdin pipe**（Claude / Bash 工作流）：
 
-| CLI           | 每次延遲  | 相對倍數   |
-|---------------|----------|-----------|
-| **etoon**     | 0.57 ms  | **1.00×** |
-| 官方 toon     | 50.7 ms  | 慢 89×    |
+| CLI           | 每次延遲  | 相對倍數    |
+|---------------|----------|------------|
+| **etoon**     | 0.43 ms  | **1.00×**  |
+| 官方 toon     | 50.7 ms  | 慢 118×    |
+
+**Auto-detect 模式**（v0.2.0+）— 自動辨識 JSON、混合 log、純文字：
+
+| 輸入                            | 大小   | 每次延遲  |
+|---------------------------------|--------|----------|
+| 純 JSON（1000 objects）         | 120KB  | 0.73 ms  |
+| 混合 log（5K JSON + 5K 文字行） | 600KB  | 1.93 ms  |
+| 純文字 pass-through             | 300KB  | 0.56 ms  |
+
+### 自行測試
+
+```bash
+# Encoder core benchmark（Rust native，不含 I/O）
+cargo run --release --bin bench payload.json
+
+# CLI stdin pipe benchmark
+# 產生測試資料
+python3 -c "
+import json
+data = [{'id': i, 'name': f'item_{i}', 'price': i*1.5, 'tags': ['a','b','c']} for i in range(1000)]
+print(json.dumps(data))
+" > /tmp/bench.json
+
+# 計時（200 次取平均）
+start=$(date +%s%N)
+for i in $(seq 1 200); do etoon < /tmp/bench.json > /dev/null; done
+end=$(date +%s%N)
+echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
+```
 
 ## 安裝
 
-### Python
+### CLI binary（LLM 工作流推薦）
+
+**預編譯版 — 不需要 Rust：**
+
+從 [GitHub Releases](https://github.com/coseto6125/etoon/releases) 下載（Linux/macOS/Windows，x86_64/aarch64）：
+
+<details>
+<summary><b>Linux</b></summary>
+
+```bash
+# x86_64
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-x86_64 -o etoon
+
+# Apple Silicon / ARM 伺服器 (aarch64)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-linux-aarch64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/   # 或 ~/.local/bin/
+```
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+```bash
+# Apple Silicon (M1/M2/M3/M4)
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-aarch64 -o etoon
+
+# Intel Mac
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/etoon-macos-x86_64 -o etoon
+
+chmod +x etoon
+sudo mv etoon /usr/local/bin/
+```
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+```powershell
+# PowerShell
+Invoke-WebRequest -Uri "https://github.com/coseto6125/etoon/releases/latest/download/etoon-windows-x86_64.exe" -OutFile "etoon.exe"
+
+# 移動到 PATH 目錄，例如：
+Move-Item etoon.exe "$env:USERPROFILE\.local\bin\etoon.exe"
+```
+</details>
+
+<details>
+<summary><b>驗證下載（可選）</b></summary>
+
+每個 release 都附帶 `SHA256SUMS.txt` 和 [Sigstore](https://www.sigstore.dev) cosign 簽名，可驗證 binary 由 GitHub Actions 從本 repo 建構。
+
+```bash
+# 1. 驗證 checksum
+curl -L https://github.com/coseto6125/etoon/releases/latest/download/SHA256SUMS.txt -o SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+
+# 2. 驗證 sigstore 簽名（需安裝 cosign：https://docs.sigstore.dev/cosign/system_config/installation/）
+BINARY=etoon-linux-x86_64   # 改成你的平台
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.sig"
+curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.pem"
+cosign verify-blob "$BINARY" --signature "${BINARY}.sig" --certificate "${BINARY}.pem" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp "github.com/coseto6125/etoon"
+```
+
+macOS 未簽名 binary 提示：`xattr -d com.apple.quarantine etoon` 可繞過 Gatekeeper。
+</details>
+
+**從原始碼編譯（需要 Rust toolchain）：**
+
+```bash
+cargo install etoon
+```
+
+### Python library
+
 ```bash
 pip install etoon
 ```
 
+> 這會安裝 Python binding（`etoon.dumps()`），**不包含** CLI binary。CLI 請用上面的方式安裝。
+
 ### Rust library
+
 ```bash
 cargo add etoon --no-default-features
-```
-
-### CLI binary
-從 [GitHub Releases](https://github.com/coseto6125/etoon/releases) 下載，或：
-```bash
-cargo install etoon
 ```
 
 ## 使用
@@ -59,28 +164,97 @@ print(etoon.dumps(docs))
 ```bash
 curl -s https://api.example.com/data | etoon
 cat data.json | etoon -o output.toon
+aws logs tail /ecs/my-service | etoon        # 混合 log：JSON 區塊 → TOON，文字 → pass-through
+etoon --strict < data.json                   # 非 JSON 時報錯（舊行為）
 ```
 
-### LLM agent 使用（Claude Code 等）
+### LLM Agent — 設定指南
 
-在任何會輸出 JSON 的 shell 指令後接 `| etoon`，讀取時省 LLM token。轉換
-無損，TOON 格式比 JSON 精簡（通常省 40-60% token）。
+在 shell 指令末尾加 `| etoon`，讓 AI 讀 TOON 而非原始 JSON — **省 40-60% token**，無損，自動辨識輸入格式。
 
 ```bash
 gh pr list --json number,title,author | etoon
-aws s3api list-buckets | etoon
+aws logs tail /ecs/my-service | etoon
 kubectl get pods -o json | etoon
 ```
 
-**LLM 用法規則**：
-- 終端專用 — `jq` / `grep` / `awk` 要放在 `| etoon` **之前**，絕不在後
-- 非 JSON 輸入會原樣 pass through（預設開啟安全）
-- byte-exact diff 或極小單 blob 輸出可跳過
-- `etoon` fail（極罕見，JSON 壞格式）時無 pipe 重跑
+**規則**：
+- `| etoon` 放在 pipeline **最後** — `jq` / `grep` / `awk` 在前，絕不在後
+- 自動辨識 JSON / 混合 log / 純文字 — 任何指令都可安全附加
+- 僅跳過：byte-exact diff、單值查詢（1-2 行）
 
-`CLAUDE.md` 範例規則：
-> 任何會輸出 JSON 的 bash 指令尾端預設加 `| etoon`，放在 pipeline 最後。
-> 失敗時移除 pipe 重跑。
+---
+
+#### Claude Code
+
+加到專案根目錄的 `CLAUDE.md`（或 `.claude/CLAUDE.md`）：
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any Bash command whose output
+reaches the conversation. etoon auto-detects JSON, mixed log, and plain text.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Cursor
+
+加到 `.cursor/rules/etoon.mdc`：
+
+````markdown
+---
+description: Compress shell output with etoon
+globs:
+alwaysApply: true
+---
+
+When running shell/terminal commands, append `| etoon` as the last pipe segment.
+etoon auto-detects JSON, mixed log, and plain text — safe for any command.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### OpenAI Codex CLI
+
+加到專案根目錄的 `AGENTS.md`：
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Windsurf / 其他 AI 編輯器
+
+加到 `.windsurfrules`（Windsurf）或對應的規則檔：
+
+````markdown
+When executing shell commands, always append `| etoon` at the end of the pipeline.
+etoon auto-detects input format: JSON → compact TOON, mixed log → JSON blocks encoded + text pass-through, plain text → unchanged.
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### Gemini CLI
+
+加到專案根目錄的 `GEMINI.md`：
+
+````markdown
+## Bash Output
+
+Append `| etoon` as the final pipe segment of any shell command.
+etoon auto-detects JSON, mixed log, and plain text (non-JSON passes through unchanged).
+Skip only for byte-exact diff or single-value lookups (1-2 lines).
+````
+
+#### ChatGPT / Custom GPTs
+
+加到 system prompt 或自訂指令：
+
+```
+When generating shell commands for the user, append `| etoon` as the last pipe segment.
+etoon converts JSON to TOON (40-60% fewer tokens). Non-JSON passes through unchanged.
+```
 
 ### Rust
 ```rust
@@ -109,8 +283,10 @@ whitespace。
 
 ## 進階選項
 
+> 這些是 [TOON spec](https://github.com/toon-format/toon) 提供的可選參數，適用於 **codebase 內的程式呼叫**（Python / Rust library）。CLI 的 `| etoon` pipe 使用預設值，不需要設定這些。
+
 ```python
-# 自訂分隔符（資料含逗號時可省 token）
+# 自訂分隔符（資料含逗號時使用）
 etoon.dumps(data, delimiter="|")   # 或 "\t"
 
 # Key folding：壓扁 {a:{b:{c:1}}} → "a.b.c: 1"
