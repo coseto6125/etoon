@@ -1,7 +1,5 @@
 # etoon
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/coseto6125/etoon/badge)](https://scorecard.dev/viewer/?uri=github.com/coseto6125/etoon)
-
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
 **8× faster than `toons`**, **2.7× faster than the official TS SDK**, byte-identical output.
@@ -108,20 +106,17 @@ Move-Item etoon.exe "$env:USERPROFILE\.local\bin\etoon.exe"
 <details>
 <summary><b>Verify download (optional)</b></summary>
 
-Each release includes `SHA256SUMS.txt` and [Sigstore](https://www.sigstore.dev) cosign signatures to verify the binary was built by GitHub Actions from this repo.
+Each release includes SHA256 checksums, [SLSA provenance](https://slsa.dev) attestation, and [VirusTotal](https://www.virustotal.com) scan reports.
 
 ```bash
 # 1. Verify checksum
 curl -L https://github.com/coseto6125/etoon/releases/latest/download/SHA256SUMS.txt -o SHA256SUMS.txt
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
-# 2. Verify sigstore signature (requires cosign: https://docs.sigstore.dev/cosign/system_config/installation/)
-BINARY=etoon-linux-x86_64   # change to your platform
-curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.sig"
-curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.pem"
-cosign verify-blob "$BINARY" --signature "${BINARY}.sig" --certificate "${BINARY}.pem" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp "github.com/coseto6125/etoon"
+# 2. Verify SLSA provenance (requires gh CLI)
+gh attestation verify etoon-linux-x86_64 --repo coseto6125/etoon
+
+# 3. VirusTotal — scan report links are in the release notes
 ```
 
 macOS unsigned binary note: `xattr -d com.apple.quarantine etoon` to bypass Gatekeeper.
