@@ -147,6 +147,21 @@ jobs:
           path: ${{ matrix.name }}
 
   # ========================================================================
+  # Security: cargo audit (check dependencies for known CVEs)
+  # ========================================================================
+  cargo-audit:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run cargo audit
+        run: cargo audit
+
+  # ========================================================================
   # Publish to PyPI (on tag push)
   # ========================================================================
   publish-pypi:
@@ -188,15 +203,16 @@ jobs:
         run: cargo publish --no-default-features
 
   # ========================================================================
-  # Create GitHub Release with CLI binaries + checksums + signatures
+  # Create GitHub Release with checksums + SLSA provenance + VirusTotal
   # ========================================================================
   github-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [cli-binaries]
+    needs: [cli-binaries, cargo-audit]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -210,22 +226,40 @@ jobs:
           sha256sum * > ../SHA256SUMS.txt
           cat ../SHA256SUMS.txt
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+      - name: SLSA provenance attestation
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: cli/*
 
-      - name: Sign binaries with cosign (keyless)
+      - name: Upload to VirusTotal
+        env:
+          VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        if: env.VT_API_KEY != ''
         run: |
-          cd cli
-          for f in *; do
-            cosign sign-blob --yes "$f" --output-signature "../${f}.sig" --output-certificate "../${f}.pem"
+          echo "## VirusTotal Scan Results" > vt_report.md
+          echo "" >> vt_report.md
+          for f in cli/*; do
+            name=$(basename "$f")
+            echo "Uploading $name to VirusTotal..."
+            response=$(curl -s --request POST \
+              --url https://www.virustotal.com/api/v3/files \
+              --header "x-apikey: $VT_API_KEY" \
+              --form "file=@$f")
+            analysis_id=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])" 2>/dev/null || echo "")
+            if [ -n "$analysis_id" ]; then
+              sha256=$(sha256sum "$f" | cut -d' ' -f1)
+              echo "- [\`$name\`](https://www.virustotal.com/gui/file/$sha256)" >> vt_report.md
+            else
+              echo "- \`$name\`: upload failed" >> vt_report.md
+            fi
           done
+          cat vt_report.md
 
       - name: Collect release assets
         run: |
           mkdir release
           cp cli/* release/
           cp SHA256SUMS.txt release/
-          cp *.sig *.pem release/
 
       - name: Create release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
@@ -234,3 +268,5 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          append_body: true
+          body_path: vt_report.md

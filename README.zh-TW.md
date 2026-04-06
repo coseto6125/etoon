@@ -1,7 +1,5 @@
 # etoon
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/coseto6125/etoon/badge)](https://scorecard.dev/viewer/?uri=github.com/coseto6125/etoon)
-
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
 **比 `toons` 快 8 倍**、**比官方 TS SDK 快 2.7 倍**，輸出 byte-identical。
@@ -109,20 +107,17 @@ Move-Item etoon.exe "$env:USERPROFILE\.local\bin\etoon.exe"
 <details>
 <summary><b>驗證下載（可選）</b></summary>
 
-每個 release 都附帶 `SHA256SUMS.txt` 和 [Sigstore](https://www.sigstore.dev) cosign 簽名，可驗證 binary 由 GitHub Actions 從本 repo 建構。
+每個 release 都附帶 SHA256 checksum、[SLSA provenance](https://slsa.dev) 證明、和 [VirusTotal](https://www.virustotal.com) 掃描報告。
 
 ```bash
 # 1. 驗證 checksum
 curl -L https://github.com/coseto6125/etoon/releases/latest/download/SHA256SUMS.txt -o SHA256SUMS.txt
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
-# 2. 驗證 sigstore 簽名（需安裝 cosign：https://docs.sigstore.dev/cosign/system_config/installation/）
-BINARY=etoon-linux-x86_64   # 改成你的平台
-curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.sig"
-curl -LO "https://github.com/coseto6125/etoon/releases/latest/download/${BINARY}.pem"
-cosign verify-blob "$BINARY" --signature "${BINARY}.sig" --certificate "${BINARY}.pem" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp "github.com/coseto6125/etoon"
+# 2. 驗證 SLSA provenance（需要 gh CLI）
+gh attestation verify etoon-linux-x86_64 --repo coseto6125/etoon
+
+# 3. VirusTotal — 掃描報告連結在 release notes 裡
 ```
 
 macOS 未簽名 binary 提示：`xattr -d com.apple.quarantine etoon` 可繞過 Gatekeeper。
