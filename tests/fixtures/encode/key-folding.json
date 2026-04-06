@@ -205,7 +205,7 @@
         },
         "requestId": "abc-123"
       },
-      "expected": "@timestamp: 2026-04-06T12:00:00Z\n@message:\n  level: ERROR\n  msg: timeout\nrequestId: abc-123",
+      "expected": "@timestamp: \"2026-04-06T12:00:00Z\"\n@message:\n  level: ERROR\n  msg: timeout\nrequestId: abc-123",
       "options": {
         "keyFolding": "safe"
       },
@@ -227,6 +227,39 @@
       },
       "specSection": "13.4",
       "note": "@log → detail → code is a single-key chain; @-prefixed folded key is a valid identifier"
+    },
+    {
+      "name": "folds $-prefixed keys (MongoDB/JSON Schema style)",
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": {
+          "definitions": {
+            "User": {"type": "object"}
+          }
+        }
+      },
+      "expected": "$schema: \"https://json-schema.org/draft/2020-12/schema\"\n$ref.definitions.User.type: object",
+      "options": {
+        "keyFolding": "safe"
+      },
+      "specSection": "13.4",
+      "note": "$ref → definitions → User is a single-key chain; $-prefixed folded key is a valid identifier"
+    },
+    {
+      "name": "folds #-prefixed keys (JSON-LD/Azure style)",
+      "input": {
+        "#context": {
+          "vocab": "https://schema.org/"
+        },
+        "#comment": "internal metadata",
+        "id": 42
+      },
+      "expected": "#context.vocab: \"https://schema.org/\"\n#comment: internal metadata\nid: 42",
+      "options": {
+        "keyFolding": "safe"
+      },
+      "specSection": "13.4",
+      "note": "#context → vocab is a single-key chain; #-prefixed folded key is a valid identifier"
     },
     {
       "name": "encodes folded chains preserving sibling field order",
