@@ -89,12 +89,7 @@ fn write_object_body<const DELIM: u8>(
     }
 }
 
-fn try_fold<'a>(
-    k: &'a str,
-    v: &'a Value,
-    cfg: &Config,
-    m: &Object,
-) -> Option<(String, &'a Value)> {
+fn try_fold<'a>(k: &'a str, v: &'a Value, cfg: &Config, m: &Object) -> Option<(String, &'a Value)> {
     let max_depth = cfg.flatten_depth.unwrap_or(usize::MAX);
     if max_depth < 2 {
         return None;
@@ -132,7 +127,7 @@ fn try_fold<'a>(
     }
 
     let joined: String = path.join(".");
-    
+
     if m.get(&joined).is_some() {
         return None;
     }
