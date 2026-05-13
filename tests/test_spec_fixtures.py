@@ -1,4 +1,5 @@
-"""Run the TOON spec fixtures against etoon.
+"""
+Run the TOON spec fixtures against etoon.
 
 Fixtures sourced from the `toons` project (Apache 2.0). See ATTRIBUTION.md.
 Each fixture file contains N test cases with (input, expected) pairs.
@@ -6,10 +7,9 @@ Each fixture file contains N test cases with (input, expected) pairs.
 
 import pathlib
 
+import etoon
 import orjson
 import pytest
-
-import etoon
 
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures" / "encode"
 
@@ -56,7 +56,7 @@ def _collect_cases():
     return cases
 
 
-@pytest.mark.parametrize("payload,expected,kwargs", _collect_cases())
+@pytest.mark.parametrize(("payload", "expected", "kwargs"), _collect_cases())
 def test_encode_matches_spec(payload, expected, kwargs):
     got = etoon.dumps(payload, **kwargs)
     assert got == expected
