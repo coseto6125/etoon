@@ -1,4 +1,5 @@
-"""etoon: fast TOON encoder for Python.
+"""
+etoon: fast TOON encoder for Python.
 
 Bridges Python → orjson (JSON bytes) → Rust → TOON string.
 """
@@ -22,7 +23,8 @@ def dumps(
     fold_keys: bool = False,
     flatten_depth: int | None = None,
 ) -> str:
-    """Encode a Python value to TOON format (2-space indent).
+    r"""
+    Encode a Python value to TOON format (2-space indent).
 
     Accepts anything orjson can serialize (dict, list, str, int, float,
     bool, None, datetime, UUID, etc.). Falls back to stdlib json for
@@ -37,7 +39,9 @@ def dumps(
         flatten_depth: Maximum chain length when ``fold_keys=True``. ``None``
             means unlimited; ``0`` disables folding.
     """
-    if isinstance(data, (bytes, bytearray)):
+    if isinstance(data, bytes):
+        return _dumps_bytes(data, delimiter, fold_keys, flatten_depth)
+    if isinstance(data, bytearray):
         return _dumps_bytes(bytes(data), delimiter, fold_keys, flatten_depth)
     try:
         json_bytes = orjson.dumps(data)

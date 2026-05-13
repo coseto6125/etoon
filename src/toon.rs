@@ -7,7 +7,6 @@
 //! byte-match inner loops fold away when emitting default-comma output.
 
 use sonic_rs::{Array, JsonContainerTrait, JsonType, JsonValueTrait, Object, Value};
-use std::collections::HashSet;
 use std::fmt::Write as _;
 
 /// Encoder configuration matching TOON spec v1.5 options.
@@ -69,12 +68,6 @@ fn write_object_body<const DELIM: u8>(
     allow_fold: bool,
     out: &mut String,
 ) {
-    let siblings: Option<HashSet<&str>> = if allow_fold {
-        Some(m.iter().map(|(k, _)| k).collect())
-    } else {
-        None
-    };
-
     let mut first = true;
     for (k, v) in m.iter() {
         if !first {
@@ -83,8 +76,8 @@ fn write_object_body<const DELIM: u8>(
         first = false;
         write_indent(indent, out);
 
-        if let Some(ref sibs) = siblings {
-            if let Some((joined, final_v)) = try_fold(k, v, cfg, sibs) {
+        if allow_fold {
+            if let Some((joined, final_v)) = try_fold(k, v, cfg, m) {
                 write_key(&joined, out);
                 write_value_after_key::<DELIM>(final_v, indent, cfg, out);
                 continue;
@@ -100,7 +93,7 @@ fn try_fold<'a>(
     k: &'a str,
     v: &'a Value,
     cfg: &Config,
-    siblings: &HashSet<&str>,
+    m: &Object,
 ) -> Option<(String, &'a Value)> {
     let max_depth = cfg.flatten_depth.unwrap_or(usize::MAX);
     if max_depth < 2 {
@@ -139,10 +132,9 @@ fn try_fold<'a>(
     }
 
     let joined: String = path.join(".");
-    for &s in siblings {
-        if s != k && s == joined.as_str() {
-            return None;
-        }
+    
+    if m.get(&joined).is_some() {
+        return None;
     }
 
     Some((joined, cur_v))
