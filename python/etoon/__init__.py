@@ -10,7 +10,7 @@ import orjson
 
 from etoon._etoon import dumps_bytes as _dumps_bytes
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 __all__ = ["dumps"]
 
 Delimiter = Literal[",", "\t", "|"]
@@ -22,6 +22,8 @@ def dumps(
     delimiter: Delimiter = ",",
     fold_keys: bool = False,
     flatten_depth: int | None = None,
+    empty_array_bare: bool = True,
+    escape_controls: bool = True,
 ) -> str:
     r"""
     Encode a Python value to TOON format (2-space indent).
@@ -38,11 +40,18 @@ def dumps(
             when a segment needs quoting, and avoids collisions with sibling keys.
         flatten_depth: Maximum chain length when ``fold_keys=True``. ``None``
             means unlimited; ``0`` disables folding.
+        empty_array_bare: If True (default, TOON spec v3.1), emit empty arrays as
+            canonical ``[]`` / ``key: []`` instead of the legacy ``[0]:`` form.
+            A bare array *element* that is itself empty (e.g. ``[[], []]``) always
+            keeps ``- [0]:`` per spec §9.2; object fields use ``key: []``.
+        escape_controls: If True (default, TOON spec v3.1), escape control chars
+            U+0000–U+001F (except ``\n`` ``\r`` ``\t``) as ``\uXXXX`` with lowercase hex.
     """
+    args = (delimiter, fold_keys, flatten_depth, empty_array_bare, escape_controls)
     if isinstance(data, bytes):
-        return _dumps_bytes(data, delimiter, fold_keys, flatten_depth)
+        return _dumps_bytes(data, *args)
     if isinstance(data, bytearray):
-        return _dumps_bytes(bytes(data), delimiter, fold_keys, flatten_depth)
+        return _dumps_bytes(bytes(data), *args)
     try:
         json_bytes = orjson.dumps(data)
     except TypeError:
@@ -50,4 +59,4 @@ def dumps(
         import json as _stdlib_json
 
         json_bytes = _stdlib_json.dumps(data, ensure_ascii=False).encode("utf-8")
-    return _dumps_bytes(json_bytes, delimiter, fold_keys, flatten_depth)
+    return _dumps_bytes(json_bytes, *args)

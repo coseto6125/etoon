@@ -30,9 +30,10 @@ Issues = "https://github.com/coseto6125/etoon/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "toons>=0.5.4", "tiktoken>=0.7"]
+bench = ["toons>=0.5.4", "py-rtoon"]
 
 [tool.maturin]
 bindings = "pyo3"
 module-name = "etoon._etoon"
 python-source = "python"
-features = ["pyo3/extension-module"]
+features = ["python", "pyo3/extension-module"]

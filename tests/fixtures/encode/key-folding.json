@@ -279,6 +279,44 @@
         "keyFolding": "safe"
       },
       "specSection": "13.4"
+    },
+    {
+      "name": "folds a single-key chain nested inside a multi-key object",
+      "input": {
+        "a": {
+          "x": 1,
+          "nested": {
+            "b": {
+              "c": 2
+            }
+          }
+        }
+      },
+      "expected": "a:\n  x: 1\n  nested.b.c: 2",
+      "options": {
+        "keyFolding": "safe"
+      },
+      "specSection": "13.4",
+      "note": "folding restarts at the multi-key object `a`; the single-key chain nested→b→c folds at depth"
+    },
+    {
+      "name": "does not re-fold past a flattenDepth stop in nested bodies",
+      "input": {
+        "a": {
+          "b": {
+            "c": {
+              "d": 1
+            }
+          }
+        }
+      },
+      "expected": "a.b:\n  c:\n    d: 1",
+      "options": {
+        "keyFolding": "safe",
+        "flattenDepth": 2
+      },
+      "specSection": "13.4",
+      "note": "after folding a.b (depth=2), the remaining single-key body must stay nested, not re-fold"
     }
   ]
 }

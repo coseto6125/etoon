@@ -7,13 +7,15 @@ mod py_binding {
     use pyo3::types::PyBytes;
 
     #[pyfunction]
-    #[pyo3(signature = (json_bytes, delimiter=",", key_folding=false, flatten_depth=None))]
+    #[pyo3(signature = (json_bytes, delimiter=",", key_folding=false, flatten_depth=None, empty_array_bare=true, escape_controls=true))]
     fn dumps_bytes<'py>(
         py: Python<'py>,
         json_bytes: &Bound<'py, PyBytes>,
         delimiter: &str,
         key_folding: bool,
         flatten_depth: Option<usize>,
+        empty_array_bare: bool,
+        escape_controls: bool,
     ) -> PyResult<String> {
         let delim = delimiter.as_bytes().first().copied().unwrap_or(b',');
         if !matches!(delim, b',' | b'\t' | b'|') {
@@ -25,6 +27,8 @@ mod py_binding {
             delimiter: delim,
             key_folding,
             flatten_depth,
+            empty_array_bare,
+            escape_controls,
         };
         let bytes = json_bytes.as_bytes();
         py.detach(|| encode_with(bytes, &cfg))
