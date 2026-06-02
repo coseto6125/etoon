@@ -13,50 +13,34 @@
 
 ## 效能
 
-50 筆 payload 實測（7480 bytes JSON → 4012 bytes TOON）：
+各種代表性 payload 的單次編碼時間（`etoon` = Python/PyO3，best-of-7 × 2000 次）。
+`✓` = 輸出與 etoon byte-identical；`✗` = 該編碼器偏離 TOON spec（例如 py-rtoon
+對整數值浮點輸出 `0.0`，spec 要求 `0`）。
 
-| 編碼器                     | 時間     | 相對倍數   |
-|----------------------------|----------|-----------|
-| **etoon (Rust native)**    | 11.9 μs  | **1.00×** |
-| **etoon (Python, PyO3)**   | 15.4 μs  | 1.27×     |
-| @toon-format/toon (TS SDK) | 35.6 μs  | 2.94×     |
-| py-rtoon                   | 85.9 μs  | 7.10×     |
-| toons                      | 106.4 μs | 8.79×     |
+| Payload（編碼）         | etoon   | toons          | py-rtoon       | @toon-format/toon (TS) |
+|-------------------------|---------|----------------|----------------|------------------------|
+| 1000 筆同構物件         | 169 µs  | 888 µs (5.2×✓) | 868 µs (5.1×✗) | 455 µs (2.7×✓)         |
+| 深層巢狀                | 123 µs  | 291 µs (2.4×✓) | 737 µs (6.0×✗) | 602 µs (4.9×✓)         |
+| 1000 筆字串記錄         | 93 µs   | 747 µs (8.0×✓) | 596 µs (6.4×✓) | 640 µs (6.9×✓)         |
+| 500 筆混合物件          | 136 µs  | 755 µs (5.5×✓) | 599 µs (4.4×✗) | 1165 µs (8.6×✓)        |
 
-**CLI 透過 stdin pipe**（Claude / Bash 工作流）：
+**比所有其他編碼器快 2.4–8.6 倍**，且輸出 **byte-identical、符合 spec canonical**
+（toons 與 TS SDK 逐位元組一致；py-rtoon 不符）。
 
-| CLI           | 每次延遲  | 相對倍數    |
-|---------------|----------|------------|
-| **etoon**     | 0.43 ms  | **1.00×**  |
-| 官方 toon     | 50.7 ms  | 慢 118×    |
-
-**Auto-detect 模式**（v0.2.0+）— 自動辨識 JSON、混合 log、純文字：
-
-| 輸入                            | 大小   | 每次延遲  |
-|---------------------------------|--------|----------|
-| 純 JSON（1000 objects）         | 120KB  | 0.73 ms  |
-| 混合 log（5K JSON + 5K 文字行） | 600KB  | 1.93 ms  |
-| 純文字 pass-through             | 300KB  | 0.56 ms  |
+CLI（`… | etoon`）在此之上多了進程啟動 + pipe I/O — 適合 shell pipeline / LLM log，
+但程式內呼叫請優先用 PyO3 的 `dumps`（無進程啟動、無 pipe）。Auto-detect 模式
+（JSON / 混合 log / 純文字）在 100–600 KB 輸入上約 0.6–1.9 ms / 次。
 
 ### 自行測試
 
 ```bash
-# Encoder core benchmark（Rust native，不含 I/O）
+# 速度 + parity 對比 toons / py-rtoon / TS SDK（未安裝者自動略過）：
+pip install -e '.[bench]'        # toons + py-rtoon
+npm install @toon-format/toon    # 選用：TS SDK 對比
+python benches/compare.py        # 可加 --iters N 調整
+
+# Encoder core benchmark（Rust native，不含 Python/PyO3 開銷）：
 cargo run --release --bin bench payload.json
-
-# CLI stdin pipe benchmark
-# 產生測試資料
-python3 -c "
-import json
-data = [{'id': i, 'name': f'item_{i}', 'price': i*1.5, 'tags': ['a','b','c']} for i in range(1000)]
-print(json.dumps(data))
-" > /tmp/bench.json
-
-# 計時（200 次取平均）
-start=$(date +%s%N)
-for i in $(seq 1 200); do etoon < /tmp/bench.json > /dev/null; done
-end=$(date +%s%N)
-echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
 ```
 
 ## 安裝
