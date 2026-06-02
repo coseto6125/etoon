@@ -13,49 +13,35 @@ Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation
 
 ## Performance
 
-Measured on a 50-doc payload (7480 bytes JSON → 4012 bytes TOON):
+Per-call encode time across representative payloads (`etoon` = Python/PyO3,
+best-of-7 × 2000 calls). `✓` = output byte-identical to etoon; `✗` = the
+encoder deviates from the TOON spec (e.g. py-rtoon emits `0.0` where the spec
+requires `0`).
 
-| Encoder                    | Time    | vs etoon |
-|----------------------------|---------|----------|
-| **etoon (Rust, native)**   | 11.9 μs | **1.00×** |
-| **etoon (Python, PyO3)**   | 15.4 μs | 1.27×    |
-| @toon-format/toon (TS SDK) | 35.6 μs | 2.94×    |
-| py-rtoon                   | 85.9 μs | 7.10×    |
-| toons                      | 106.4 μs| 8.79×    |
+| Payload (encode)        | etoon   | toons          | py-rtoon       | @toon-format/toon (TS) |
+|-------------------------|---------|----------------|----------------|------------------------|
+| 1000 uniform objects    | 169 µs  | 888 µs (5.2×✓) | 868 µs (5.1×✗) | 455 µs (2.7×✓)         |
+| deep nested             | 123 µs  | 291 µs (2.4×✓) | 737 µs (6.0×✗) | 602 µs (4.9×✓)         |
+| 1000 string records     | 93 µs   | 747 µs (8.0×✓) | 596 µs (6.4×✓) | 640 µs (6.9×✓)         |
+| 500 mixed objects       | 136 µs  | 755 µs (5.5×✓) | 599 µs (4.4×✗) | 1165 µs (8.6×✓)        |
 
-**CLI via stdin pipe** (Claude / Bash workflows):
+**2.4–8.6× faster** than every other encoder, with **byte-identical, spec-canonical** output (toons and the TS SDK match byte-for-byte; py-rtoon does not).
 
-| CLI           | Per call | Relative |
-|---------------|----------|----------|
-| **etoon**     | 0.43 ms  | **1.00×** |
-| official toon | 50.7 ms  | 118× slower |
-
-**Auto-detect mode** (v0.2.0+) — handles JSON, mixed log, and plain text:
-
-| Input                          | Size  | Per call |
-|--------------------------------|-------|----------|
-| Pure JSON (1000 objects)       | 120KB | 0.73 ms  |
-| Mixed log (5K JSON + 5K text) | 600KB | 1.93 ms  |
-| Plain text pass-through        | 300KB | 0.56 ms  |
+The CLI (`… | etoon`) adds process-spawn + pipe I/O on top — fine for shell
+pipelines / LLM logs, but for in-process use prefer the PyO3 `dumps` (no spawn,
+no pipe). Auto-detect mode (JSON / mixed log / plain text) runs at ~0.6–1.9 ms
+per call on 100–600 KB inputs.
 
 ### Reproduce
 
 ```bash
-# Encoder core benchmark (Rust native, no I/O)
+# Speed + parity vs toons / py-rtoon / TS SDK (each auto-skipped if absent):
+pip install -e '.[bench]'        # toons + py-rtoon
+npm install @toon-format/toon    # optional: TS SDK comparison
+python benches/compare.py        # add --iters N to tune
+
+# Encoder core benchmark (Rust native, no Python/PyO3 overhead):
 cargo run --release --bin bench payload.json
-
-# CLI stdin pipe benchmark
-python3 -c "
-import json
-data = [{'id': i, 'name': f'item_{i}', 'price': i*1.5, 'tags': ['a','b','c']} for i in range(1000)]
-print(json.dumps(data))
-" > /tmp/bench.json
-
-# Time 200 runs
-start=$(date +%s%N)
-for i in $(seq 1 200); do etoon < /tmp/bench.json > /dev/null; done
-end=$(date +%s%N)
-echo "$(echo "scale=2; ($end - $start) / 200000000" | bc)ms avg"
 ```
 
 ## Install

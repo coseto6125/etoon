@@ -1,8 +1,9 @@
 """
 Run the TOON spec fixtures against etoon.
 
-Fixtures sourced from the `toons` project (Apache 2.0). See ATTRIBUTION.md.
-Each fixture file contains N test cases with (input, expected) pairs.
+Encode fixtures track the official `toon-format/spec` repo (TOON spec v3.1).
+`key-folding.json` additionally carries etoon's `@`/`$`/`#` sigil-prefix cases.
+See ATTRIBUTION.md. Each fixture file contains N test cases with (input, expected) pairs.
 """
 
 import pathlib

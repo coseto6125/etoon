@@ -1,6 +1,6 @@
 [package]
 name = "etoon"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 description = "Fast TOON (Token-Oriented Object Notation) encoder. 8x faster than toons, 2.7x faster than the official TS SDK."
 license = "Apache-2.0"
@@ -18,8 +18,11 @@ name = "etoon"
 path = "src/bin/etoon.rs"
 required-features = []
 
+# default is empty so `cargo install etoon` builds the CLI binary without
+# pulling in pyo3; the Python wheel enables `python` explicitly via maturin
+# (see pyproject.toml [tool.maturin] features).
 [features]
-default = ["python"]
+default = []
 python = ["dep:pyo3"]
 
 [dependencies]

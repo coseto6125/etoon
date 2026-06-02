@@ -26,12 +26,14 @@ jobs:
           . .venv/bin/activate
           pip install maturin pytest
           maturin develop --release
-      - name: Run 111 TOON spec fixtures
+      - name: Run TOON spec fixtures
         run: |
           . .venv/bin/activate
           python -m pytest tests/test_spec_fixtures.py -q
+      - name: Run Rust unit tests
+        run: cargo test --no-default-features
       - name: Build CLI binary
-        run: cargo build --release --bin etoon --no-default-features
+        run: cargo build --release --bin etoon
       - name: Smoke-test CLI
         run: |
           echo '{"a":[1,2,3],"b":"hi"}' | ./target/release/etoon
@@ -60,4 +62,5 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: cargo clippy --no-default-features --all-targets -- -D warnings
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --features python --all-targets -- -D warnings
