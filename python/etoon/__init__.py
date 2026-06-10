@@ -10,7 +10,7 @@ import orjson
 
 from etoon._etoon import dumps_bytes as _dumps_bytes
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __all__ = ["dumps"]
 
 Delimiter = Literal[",", "\t", "|"]
@@ -24,6 +24,8 @@ def dumps(
     flatten_depth: int | None = None,
     empty_array_bare: bool = True,
     escape_controls: bool = True,
+    max_depth: int = 1000,
+    max_input_bytes: int = 0,
 ) -> str:
     r"""
     Encode a Python value to TOON format (2-space indent).
@@ -46,12 +48,30 @@ def dumps(
             keeps ``- [0]:`` per spec §9.2; object fields use ``key: []``.
         escape_controls: If True (default, TOON spec v3.1), escape control chars
             U+0000–U+001F (except ``\n`` ``\r`` ``\t``) as ``\uXXXX`` with lowercase hex.
+        max_depth: Maximum JSON nesting depth for **raw bytes/bytearray input**
+            (default ``1000``). Input nested deeper is rejected with
+            ``ValueError`` before parsing, guarding against a stack overflow
+            that would otherwise crash the process. Ignored for dict/list input,
+            whose depth is already bounded by orjson + CPython's recursion limit
+            (so the pre-scan would be redundant overhead on the hot path).
+        max_input_bytes: Maximum size in bytes for **raw bytes/bytearray input**;
+            ``0`` (default) disables the check. Set this to bound peak memory on
+            untrusted byte input. Ignored for dict/list input (orjson has already
+            allocated the serialized bytes by the time encoding runs).
     """
-    args = (delimiter, fold_keys, flatten_depth, empty_array_bare, escape_controls)
+    bytes_args = (
+        delimiter,
+        fold_keys,
+        flatten_depth,
+        empty_array_bare,
+        escape_controls,
+        max_depth,
+        max_input_bytes,
+    )
     if isinstance(data, bytes):
-        return _dumps_bytes(data, *args)
+        return _dumps_bytes(data, *bytes_args)
     if isinstance(data, bytearray):
-        return _dumps_bytes(bytes(data), *args)
+        return _dumps_bytes(bytes(data), *bytes_args)
     try:
         json_bytes = orjson.dumps(data)
     except TypeError:
@@ -59,4 +79,8 @@ def dumps(
         import json as _stdlib_json
 
         json_bytes = _stdlib_json.dumps(data, ensure_ascii=False).encode("utf-8")
-    return _dumps_bytes(json_bytes, *args)
+    # orjson/stdlib output is already depth-bounded by CPython's recursion
+    # limit, so skip the depth/size pre-scan (max_depth=0) on this hot path.
+    return _dumps_bytes(
+        json_bytes, delimiter, fold_keys, flatten_depth, empty_array_bare, escape_controls, 0, 0
+    )

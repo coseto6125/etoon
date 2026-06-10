@@ -7,7 +7,10 @@ mod py_binding {
     use pyo3::types::PyBytes;
 
     #[pyfunction]
-    #[pyo3(signature = (json_bytes, delimiter=",", key_folding=false, flatten_depth=None, empty_array_bare=true, escape_controls=true))]
+    // Each argument maps to a Python keyword; they can't be grouped into a
+    // struct without breaking the binding signature.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (json_bytes, delimiter=",", key_folding=false, flatten_depth=None, empty_array_bare=true, escape_controls=true, max_depth=1000, max_input_bytes=0))]
     fn dumps_bytes<'py>(
         py: Python<'py>,
         json_bytes: &Bound<'py, PyBytes>,
@@ -16,6 +19,8 @@ mod py_binding {
         flatten_depth: Option<usize>,
         empty_array_bare: bool,
         escape_controls: bool,
+        max_depth: usize,
+        max_input_bytes: usize,
     ) -> PyResult<String> {
         let delim = delimiter.as_bytes().first().copied().unwrap_or(b',');
         if !matches!(delim, b',' | b'\t' | b'|') {
@@ -29,6 +34,8 @@ mod py_binding {
             flatten_depth,
             empty_array_bare,
             escape_controls,
+            max_depth,
+            max_input_bytes,
         };
         let bytes = json_bytes.as_bytes();
         py.detach(|| encode_with(bytes, &cfg))
