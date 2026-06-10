@@ -24,6 +24,16 @@ pub struct Config {
     /// If true (v3.1), escape control chars U+0000–U+001F (except the named
     /// `\n` `\r` `\t`) as `\uXXXX` with lowercase hex.
     pub escape_controls: bool,
+    /// Max JSON nesting depth. Input deeper than this is rejected before
+    /// parsing, so neither the sonic-rs DOM parser nor the recursive emitter
+    /// can overflow the stack (both crash the host process near depth ~50k).
+    /// 0 disables the check — use only when the input's depth is already
+    /// bounded by the producer (e.g. orjson output, capped by CPython's
+    /// recursion limit), since the pre-scan is then redundant.
+    pub max_depth: usize,
+    /// Max input size in bytes. 0 disables the check (default). A caller that
+    /// encodes untrusted input can set this to bound peak memory.
+    pub max_input_bytes: usize,
 }
 
 impl Default for Config {
@@ -34,6 +44,8 @@ impl Default for Config {
             flatten_depth: None,
             empty_array_bare: true,
             escape_controls: true,
+            max_depth: 1000,
+            max_input_bytes: 0,
         }
     }
 }
@@ -43,6 +55,25 @@ pub fn encode(json_bytes: &[u8]) -> Result<String, String> {
 }
 
 pub fn encode_with(json_bytes: &[u8], cfg: &Config) -> Result<String, String> {
+    if cfg.max_input_bytes != 0 && json_bytes.len() > cfg.max_input_bytes {
+        return Err(format!(
+            "input exceeds max_input_bytes ({} > {})",
+            json_bytes.len(),
+            cfg.max_input_bytes
+        ));
+    }
+    // Reject over-deep input up front: the sonic-rs DOM parser and this
+    // emitter both recurse per nesting level and overflow the stack on
+    // deeply-nested input. This O(n) pre-scan caps depth before either runs.
+    // max_depth == 0 skips it (caller guarantees depth is already bounded).
+    if cfg.max_depth != 0 {
+        if let Some(depth) = scan_exceeds_depth(json_bytes, cfg.max_depth) {
+            return Err(format!(
+                "input exceeds max_depth ({} > {})",
+                depth, cfg.max_depth
+            ));
+        }
+    }
     let value: Value =
         sonic_rs::from_slice(json_bytes).map_err(|e| format!("JSON parse error: {}", e))?;
     let mut out = String::with_capacity(json_bytes.len());
@@ -206,7 +237,9 @@ fn write_array_suffix<const DELIM: u8>(arr: &Array, indent: usize, cfg: &Config,
         return;
     }
 
-    write!(out, "[{}", arr.len()).unwrap();
+    out.push('[');
+    let mut len_buf = itoa::Buffer::new();
+    out.push_str(len_buf.format(arr.len()));
     if DELIM != b',' {
         out.push(DELIM as char);
     }
@@ -306,6 +339,77 @@ fn write_list_item_object<const DELIM: u8>(m: &Object, l: usize, cfg: &Config, o
         write_key(k, cfg, out);
         write_value_after_key::<DELIM>(v, l + 1, cfg, out);
     }
+}
+
+// ==================== Depth guard ====================
+
+/// Per-byte structural class for the depth scanner. Most bytes are `Other`
+/// (digits, whitespace, separators, string content) and cost a single table
+/// lookup + skip, so the scan stays close to memory bandwidth.
+const OPEN: u8 = 1;
+const CLOSE: u8 = 2;
+const QUOTE: u8 = 3;
+
+const CLASS: [u8; 256] = {
+    let mut t = [0u8; 256];
+    t[b'{' as usize] = OPEN;
+    t[b'[' as usize] = OPEN;
+    t[b'}' as usize] = CLOSE;
+    t[b']' as usize] = CLOSE;
+    t[b'"' as usize] = QUOTE;
+    t
+};
+
+/// Single linear pass over the raw JSON bytes tracking `{`/`[` nesting depth,
+/// skipping brackets inside string literals. Returns `Some(depth)` with the
+/// first depth that exceeds `max_depth`, or `None` if the input stays within
+/// bounds. No allocation; bails out as soon as the limit is crossed.
+///
+/// String interiors are skipped with `memchr` (SIMD), so quoted content — the
+/// bulk of typical payloads — costs near-zero, and the scalar loop only sees
+/// structural bytes.
+fn scan_exceeds_depth(bytes: &[u8], max_depth: usize) -> Option<usize> {
+    let mut depth: usize = 0;
+    let mut i = 0;
+    let n = bytes.len();
+    while i < n {
+        match CLASS[bytes[i] as usize] {
+            OPEN => {
+                depth += 1;
+                if depth > max_depth {
+                    return Some(depth);
+                }
+                i += 1;
+            }
+            CLOSE => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            QUOTE => {
+                // Skip to the closing quote, honoring backslash escapes. Each
+                // memchr2 jumps straight to the next `"` or `\`.
+                i += 1;
+                loop {
+                    match memchr::memchr2(b'"', b'\\', &bytes[i..]) {
+                        Some(p) => {
+                            if bytes[i + p] == b'"' {
+                                i += p + 1;
+                                break;
+                            }
+                            // backslash: skip the escaped byte
+                            i += p + 2;
+                            if i >= n {
+                                return None;
+                            }
+                        }
+                        None => return None, // unterminated string
+                    }
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 // ==================== Helpers ====================
@@ -429,8 +533,19 @@ fn write_float(f: f64, out: &mut String) {
         out.push_str(buf.format(f as i64));
         return;
     }
-    // std Display gives spec-canonical decimals (expanded, no trailing zeros).
-    write!(out, "{}", f).unwrap();
+    // ryu is ~2.4x faster than std Display for non-integer floats, but emits
+    // scientific notation for very small/large magnitudes (1e-6, 1e21) which
+    // violates TOON's expanded-decimal form. Use ryu when its output has no
+    // exponent (the common LLM-payload case); otherwise fall back to std
+    // Display, which always expands.
+    let mut buf = ryu::Buffer::new();
+    let s = buf.format_finite(f);
+    if s.as_bytes().contains(&b'e') {
+        // std Display gives spec-canonical decimals (expanded, no trailing zeros).
+        write!(out, "{}", f).unwrap();
+    } else {
+        out.push_str(s);
+    }
 }
 
 // ==================== String ====================
@@ -777,5 +892,75 @@ mod tests {
             ),
             "data:\n  meta:\n    items[2]: 1,2\ndata.meta.items: literal"
         );
+    }
+
+    // ── Depth guard (P0: prevents sonic-rs/emitter stack overflow) ──
+
+    #[test]
+    fn test_max_depth_rejects_overdeep_input_before_parse() {
+        // Depth far below the ~50k crash threshold, but past a small limit:
+        // must return Err, never overflow the stack.
+        let deep: Vec<u8> = b"["
+            .iter()
+            .cycle()
+            .take(100)
+            .chain(b"1".iter())
+            .chain(b"]".iter().cycle().take(100))
+            .copied()
+            .collect();
+        let cfg = Config {
+            max_depth: 10,
+            ..Config::default()
+        };
+        let err = encode_with(&deep, &cfg).unwrap_err();
+        assert!(err.contains("max_depth"), "got: {err}");
+    }
+
+    #[test]
+    fn test_max_depth_default_allows_normal_nesting() {
+        // Ordinary nesting (well under default 1000) encodes fine.
+        assert_eq!(enc(r#"{"a":{"b":{"c":1}}}"#), "a:\n  b:\n    c: 1");
+    }
+
+    #[test]
+    fn test_max_depth_ignores_brackets_inside_strings() {
+        // Brackets in string literals must not count toward depth.
+        let cfg = Config {
+            max_depth: 2,
+            ..Config::default()
+        };
+        assert_eq!(
+            enc_with(r#"{"s":"[[[[[deep]]]]]"}"#, &cfg),
+            r#"s: "[[[[[deep]]]]]""#
+        );
+    }
+
+    // ── Input-size guard (P1: OOM protection, off by default) ──
+
+    #[test]
+    fn test_max_input_bytes_rejects_oversize_input() {
+        let cfg = Config {
+            max_input_bytes: 4,
+            ..Config::default()
+        };
+        let err = encode_with(br#"{"a":1}"#, &cfg).unwrap_err();
+        assert!(err.contains("max_input_bytes"), "got: {err}");
+    }
+
+    #[test]
+    fn test_max_input_bytes_zero_disables_check() {
+        // Default (0) imposes no limit.
+        assert_eq!(enc(r#"{"a":1}"#), "a: 1");
+    }
+
+    // ── ryu float fast path keeps spec-canonical output ──
+
+    #[test]
+    fn test_ryu_regular_floats_match_spec_form() {
+        // Common-range floats go through ryu (no exponent) and stay expanded.
+        assert_eq!(enc(r#"{"n":2.5}"#), "n: 2.5");
+        assert_eq!(enc(r#"{"n":99.99}"#), "n: 99.99");
+        assert_eq!(enc(r#"{"n":0.1}"#), "n: 0.1");
+        assert_eq!(enc(r#"{"n":-0.0625}"#), "n: -0.0625");
     }
 }
