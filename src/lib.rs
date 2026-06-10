@@ -7,6 +7,9 @@ mod py_binding {
     use pyo3::types::PyBytes;
 
     #[pyfunction]
+    // Each argument maps to a Python keyword; they can't be grouped into a
+    // struct without breaking the binding signature.
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (json_bytes, delimiter=",", key_folding=false, flatten_depth=None, empty_array_bare=true, escape_controls=true, max_depth=1000, max_input_bytes=0))]
     fn dumps_bytes<'py>(
         py: Python<'py>,
