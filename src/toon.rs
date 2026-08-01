@@ -508,19 +508,17 @@ fn scan_exceeds_depth(bytes: &[u8], max_depth: usize) -> Option<usize> {
                 // memchr2 jumps straight to the next `"` or `\`.
                 i += 1;
                 loop {
-                    match memchr::memchr2(b'"', b'\\', &bytes[i..]) {
-                        Some(p) => {
-                            if bytes[i + p] == b'"' {
-                                i += p + 1;
-                                break;
-                            }
-                            // backslash: skip the escaped byte
-                            i += p + 2;
-                            if i >= n {
-                                return None;
-                            }
-                        }
-                        None => return None, // unterminated string
+                    // No `"` or `\` left: the string is unterminated, so there
+                    // is no further nesting to find.
+                    let p = memchr::memchr2(b'"', b'\\', &bytes[i..])?;
+                    if bytes[i + p] == b'"' {
+                        i += p + 1;
+                        break;
+                    }
+                    // backslash: skip the escaped byte
+                    i += p + 2;
+                    if i >= n {
+                        return None;
                     }
                 }
             }
