@@ -10,7 +10,7 @@ import orjson
 
 from etoon._etoon import dumps_bytes as _dumps_bytes
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __all__ = ["dumps"]
 
 Delimiter = Literal[",", "\t", "|"]
@@ -40,14 +40,19 @@ def dumps(
         fold_keys: If True, collapse single-key object chains into dot-notation
             keys (``{"a": {"b": 1}}`` → ``"a.b: 1"``). Safe mode: skips folding
             when a segment needs quoting, and avoids collisions with sibling keys.
+            An etoon extension: the spec dropped key folding in v4.0, so folded
+            output is still valid TOON (dotted keys are literal keys) but no
+            decoder re-nests it.
         flatten_depth: Maximum chain length when ``fold_keys=True``. ``None``
             means unlimited; ``0`` disables folding.
-        empty_array_bare: If True (default, TOON spec v3.1), emit empty arrays as
-            canonical ``[]`` / ``key: []`` instead of the legacy ``[0]:`` form.
-            A bare array *element* that is itself empty (e.g. ``[[], []]``) always
+        empty_array_bare: If True (default), emit empty arrays as canonical
+            ``[]`` / ``key: []`` instead of the legacy ``[0]:`` form. A bare
+            array *element* that is itself empty (e.g. ``[[], []]``) always
             keeps ``- [0]:`` per spec §9.2; object fields use ``key: []``.
-        escape_controls: If True (default, TOON spec v3.1), escape control chars
-            U+0000–U+001F (except ``\n`` ``\r`` ``\t``) as ``\uXXXX`` with lowercase hex.
+            Setting it False produces output the spec forbids since v3.1.
+        escape_controls: If True (default), escape control chars U+0000–U+001F
+            (except ``\n`` ``\r`` ``\t``) as ``\uXXXX`` with lowercase hex.
+            Setting it False produces output the spec forbids since v3.1.
         max_depth: Maximum JSON nesting depth for **raw bytes/bytearray input**
             (default ``1000``). Input nested deeper is rejected with
             ``ValueError`` before parsing, guarding against a stack overflow

@@ -7,25 +7,28 @@
 
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
-**比 `toons` 快 8 倍**、**比官方 TS SDK 快 2.7 倍**，輸出 byte-identical。
+**比 `toons` 最多快 7.6 倍**、**比官方 TS SDK 快 3.0–8.3 倍**，輸出 byte-identical，對齊 **TOON spec v4.1**。
 
 [English](https://github.com/coseto6125/etoon/blob/main/README.md)
 
 ## 效能
 
-各種代表性 payload 的單次編碼時間（`etoon` = Python/PyO3，best-of-7 × 2000 次）。
-`✓` = 輸出與 etoon byte-identical；`✗` = 該編碼器偏離 TOON spec（例如 py-rtoon
-對整數值浮點輸出 `0.0`，spec 要求 `0`）。
+各種代表性 payload 的單次編碼時間（`etoon` = Python/PyO3，best-of-7 × 400 次）。
+`✓` = 輸出與 etoon byte-identical；`✗` = 該編碼器輸出不同 — 或偏離 spec（py-rtoon
+對整數值浮點輸出 `0.0`，spec 要求 `0`），或仍停在 spec v3.x、把 v4.1 的收合形式
+展開成巢狀區塊。
 
-| Payload（編碼）         | etoon   | toons          | py-rtoon       | @toon-format/toon (TS) |
-|-------------------------|---------|----------------|----------------|------------------------|
-| 1000 筆同構物件         | 169 µs  | 888 µs (5.2×✓) | 868 µs (5.1×✗) | 455 µs (2.7×✓)         |
-| 深層巢狀                | 123 µs  | 291 µs (2.4×✓) | 737 µs (6.0×✗) | 602 µs (4.9×✓)         |
-| 1000 筆字串記錄         | 93 µs   | 747 µs (8.0×✓) | 596 µs (6.4×✓) | 640 µs (6.9×✓)         |
-| 500 筆混合物件          | 136 µs  | 755 µs (5.5×✓) | 599 µs (4.4×✗) | 1165 µs (8.6×✓)        |
+| Payload（編碼）          | etoon   | toons           | py-rtoon        | @toon-format/toon 4.1 (TS) |
+|--------------------------|---------|-----------------|-----------------|----------------------------|
+| 1000 筆同構物件          | 171 µs  | 848 µs (5.0×✓)  | 772 µs (4.5×✗)  | 519 µs (3.0×✓)             |
+| 深層巢狀                 | 110 µs  | 272 µs (2.5×✓)  | 662 µs (6.0×✗)  | 611 µs (5.6×✓)             |
+| 1000 筆字串記錄          | 89 µs   | 674 µs (7.6×✓)  | 540 µs (6.1×✓)  | 640 µs (7.2×✓)             |
+| 500 筆混合物件           | 140 µs  | 680 µs (4.8×✓)  | 541 µs (3.9×✗)  | 1166 µs (8.3×✓)            |
+| 1000 筆巢狀欄位群組      | 190 µs  | 1103 µs (5.8×✗) | 953 µs (5.0×✗)  | 586 µs (3.1×✓)             |
+| 1000 筆 keyed 表格列     | 105 µs  | 679 µs (6.5×✗)  | 562 µs (5.4×✗)  | 603 µs (5.8×✓)             |
 
-**比所有其他編碼器快 2.4–8.6 倍**，且輸出 **byte-identical、符合 spec canonical**
-（toons 與 TS SDK 逐位元組一致；py-rtoon 不符）。
+**比所有其他編碼器快 2.5–8.3 倍**，且輸出 **byte-identical、符合 spec canonical**：
+六個 payload 全部逐位元組一致的只有官方 TS SDK。
 
 CLI（`… | etoon`）在此之上多了進程啟動 + pipe I/O — 適合 shell pipeline / LLM log，
 但程式內呼叫請優先用 PyO3 的 `dumps`（無進程啟動、無 pipe）。Auto-detect 模式
@@ -256,14 +259,43 @@ Python dict → orjson.dumps → JSON bytes → sonic-rs (SIMD parse) → walk �
 - **sonic-rs SIMD JSON parser**（比 serde_json 快 ~7×）
 - **orjson bridge** — 只跨一次邊界（vs PyO3-based 方案需多次）
 - **uniform-order table fast path** — 50 筆 row 省 300 次 key lookup
+- **first-row column probe** — 只看第一個元素就能排除 tabular（含 array 或空物件
+  的欄位），混合陣列以 O(欄位數) 落到 list form
 - **itoa 特化整數格式化**
 
 ## 相容性
 
-輸出與 Python 套件 `toons`（Apache 2.0）和官方 `toon-format/toon`
-TypeScript SDK **byte-identical**。通過 **111/111** TOON spec fixtures
-涵蓋 primitives、objects、arrays（primitive/tabular/nested/bulleted）、
-whitespace。
+對齊 **TOON spec v4.1**。輸出與官方 `toon-format/toon` TypeScript SDK 4.1
+**byte-identical**，並通過官方
+[`toon-format/spec`](https://github.com/toon-format/spec) encode fixture 套件
+**178/179** — 唯一未過的是需要非預設 `indentSize` 的案例（etoon 固定 2 spaces）。
+
+### v4 收合形式
+
+spec v4.0 新增兩種把巢狀壓平的形式，兩者都已實作：
+
+```bash
+# 巢狀欄位群組（§9.3）— 同構的巢狀物件變成表頭欄位
+echo '[{"id":1,"customer":{"name":"Ada","country":"DK"},"total":99}]' | etoon
+# orders[1]{id,customer{name,country},total}:
+#   1,Ada,DK,99
+
+# Keyed tabular（§9.5）— 值為同構物件的物件變成帶 key 的表格
+echo '{"alpha":{"host":"a.example.com","port":8080},"beta":{"host":"b.example.com","port":9090}}' | etoon
+# [2:]{host,port}:
+#   alpha: a.example.com,8080
+#   beta: b.example.com,9090
+```
+
+在 benchmark payload 上，相較 v3.x 的巢狀輸出分別縮小 **76.6%**（巢狀欄位群組）
+與 **31.9%**（keyed tabular）。
+
+spec v4.0 同時**移除**了 key folding 與 path expansion — 折疊後的輸出仍是合法
+TOON（點號 key 就是字面 key），但沒有 decoder 會把它還原成巢狀，所以 `fold_keys`
+現在是 etoon 的擴充而非 spec 選項。上游理由見
+[`.out-of-scope/key-folding.md`](https://github.com/toon-format/spec/blob/main/.out-of-scope/key-folding.md)：
+在參考 benchmark 上 token 節省 0.00%、與字面點號 key 產生線上歧義、且與 streaming
+decode 不相容。
 
 ## Sigil 前綴 key（`@`、`$`、`#`）
 
@@ -306,13 +338,14 @@ echo '[{"@timestamp":"2026-04-06T12:00:01Z","@message":"POST /api/v1/users 504",
 
 ## 進階選項
 
-> 這些是 [TOON spec](https://github.com/toon-format/toon) 提供的可選參數，適用於 **codebase 內的程式呼叫**（Python / Rust library）。CLI 的 `| etoon` pipe 使用預設值，不需要設定這些。
+> 適用於 **codebase 內的程式呼叫**（Python / Rust library）。CLI 的 `| etoon` pipe 使用預設值，不需要設定這些。
 
 ```python
-# 自訂分隔符（資料含逗號時使用）
+# 自訂分隔符（資料含逗號時使用）— TOON spec §11
 etoon.dumps(data, delimiter="|")   # 或 "\t"
 
 # Key folding：壓扁 {a:{b:{c:1}}} → "a.b.c: 1"
+# etoon 擴充 — spec v4.0 已移除，沒有 decoder 會還原它。
 etoon.dumps(data, fold_keys=True)
 etoon.dumps(data, fold_keys=True, flatten_depth=2)  # 部分 fold
 ```
@@ -321,9 +354,13 @@ etoon.dumps(data, fold_keys=True, flatten_depth=2)  # 部分 fold
 
 - 超過 2⁶³ 的整數會被降為 f64（多數能整數表示的 1e20 等仍可來回，
   但任意精度不支援）。
-- `indent` 固定 2 spaces（TOON spec 預設）。
+- `indentSize` 固定 2 spaces（TOON spec 預設）。
+- 只做編碼 — etoon 不提供 TOON → JSON 的解碼。
 
 ## 授權
 
 Apache 2.0。`tests/fixtures/` 測試檔案來自
-[toons](https://github.com/alesanfra/toons) 專案（Apache 2.0）。
+[toon-format/spec](https://github.com/toon-format/spec) 官方套件（MIT），
+唯獨 etoon 自有的 `key-folding.json` 衍生自
+[toons](https://github.com/alesanfra/toons)（Apache 2.0）。詳見
+[ATTRIBUTION.md](ATTRIBUTION.md)。
