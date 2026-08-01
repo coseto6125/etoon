@@ -42,6 +42,16 @@ def make_payloads() -> dict[str, object]:
             {"id": i, "meta": {"ok": True, "score": i * 0.1}, "tags": ["a", "b"]}
             for i in range(500)
         ],
+        # v4.1 collapsing forms: nested field groups (§9.3) and keyed tabular
+        # (§9.5). Encoders still on spec v3.x expand these into nested blocks.
+        "groups_1000": [
+            {"id": i, "customer": {"name": f"n{i}", "country": "DK"}, "total": i}
+            for i in range(1000)
+        ],
+        "keyed_1000": {
+            f"e{i}": {"host": f"h{i}.example.com", "port": 8000 + i}
+            for i in range(1000)
+        },
     }
 
 

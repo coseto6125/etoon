@@ -1,7 +1,7 @@
 //! TOON encoder core (sonic-rs backend).
 //!
 //! Input: JSON bytes (from orjson.dumps on Python side).
-//! Output: TOON string, matching TOON spec v3.1.
+//! Output: TOON string, matching TOON spec v4.1.
 //!
 //! Delimiter is monomorphized via const generics (`DELIM: u8`) so the
 //! byte-match inner loops fold away when emitting default-comma output.
@@ -9,20 +9,25 @@
 use sonic_rs::{Array, JsonContainerTrait, JsonType, JsonValueTrait, Object, Value};
 use std::fmt::Write as _;
 
-/// Encoder configuration matching TOON spec v3.1 options.
+/// Encoder configuration. The spec's only encoder options are `delimiter` and
+/// `indentSize` (§13); the rest are etoon extensions or resource guards.
 #[derive(Clone, Copy)]
 pub struct Config {
     /// Delimiter between array/tabular values. Must be `,`, `\t`, or `|`.
     pub delimiter: u8,
-    /// If true, fold single-key object chains into dot-notation keys (safe mode).
+    /// If true, fold single-key object chains into dot-notation keys (safe
+    /// mode). An etoon extension: the spec removed key folding in v4.0, so
+    /// nothing re-nests the output.
     pub key_folding: bool,
     /// Max fold depth (segments). None = unlimited. 0 disables folding.
     pub flatten_depth: Option<usize>,
-    /// If true (v3.1), emit empty arrays as canonical `[]` / `key: []`
-    /// instead of the legacy `[0]:` / `key[0]:` length-marker form.
+    /// If true, emit empty arrays as canonical `[]` / `key: []` instead of the
+    /// legacy `[0]:` / `key[0]:` length-marker form. False emits output the
+    /// spec has forbidden since v3.1.
     pub empty_array_bare: bool,
-    /// If true (v3.1), escape control chars U+0000–U+001F (except the named
-    /// `\n` `\r` `\t`) as `\uXXXX` with lowercase hex.
+    /// If true, escape control chars U+0000–U+001F (except the named `\n` `\r`
+    /// `\t`) as `\uXXXX` with lowercase hex. False emits output the spec has
+    /// forbidden since v3.1.
     pub escape_controls: bool,
     /// Max JSON nesting depth. Input deeper than this is rejected before
     /// parsing, so neither the sonic-rs DOM parser nor the recursive emitter
@@ -90,7 +95,10 @@ fn write_root<const DELIM: u8>(v: &Value, cfg: &Config, out: &mut String) {
     match v.get_type() {
         JsonType::Object => {
             let m = v.as_object().unwrap();
-            if !m.is_empty() {
+            if let Some(fields) = keyed_fields(m) {
+                // Root keyed tabular header is keyless: `[N:]{fields}:` (§9.5).
+                write_keyed_table::<DELIM>(m, &fields, 0, cfg, out);
+            } else if !m.is_empty() {
                 // Folding is attempted at the top-level object; nested object
                 // bodies re-apply it via write_value_after_key (spec §13.4).
                 write_object_body::<DELIM>(m, 0, cfg, cfg.key_folding, out);
@@ -98,11 +106,11 @@ fn write_root<const DELIM: u8>(v: &Value, cfg: &Config, out: &mut String) {
         }
         JsonType::Array => {
             let arr = v.as_array().unwrap();
-            // Root empty array: v3.1 canonical bare `[]` (no leading colon).
+            // Root empty array: canonical bare `[]` (no leading colon).
             if arr.is_empty() && cfg.empty_array_bare {
                 out.push_str("[]");
             } else {
-                write_array_suffix::<DELIM>(arr, 0, cfg, out);
+                write_array_suffix::<DELIM>(arr, 0, cfg, true, out);
             }
         }
         _ => write_scalar::<DELIM>(v, cfg, out),
@@ -194,6 +202,10 @@ fn write_value_after_key<const DELIM: u8>(
             let child = v.as_object().unwrap();
             if child.is_empty() {
                 out.push(':');
+            } else if let Some(fields) = keyed_fields(child) {
+                // Keyed tabular form replaces the nested object body; the
+                // header attaches directly to the key just written (§9.5).
+                write_keyed_table::<DELIM>(child, &fields, key_indent, cfg, out);
             } else {
                 out.push_str(":\n");
                 // Folding restarts only at a branch point (multi-key object).
@@ -206,11 +218,11 @@ fn write_value_after_key<const DELIM: u8>(
         }
         JsonType::Array => {
             let arr = v.as_array().unwrap();
-            // Object value: v3.1 canonical `key: []`; legacy `key[0]:` otherwise.
+            // Object value: canonical `key: []`; legacy `key[0]:` otherwise.
             if arr.is_empty() && cfg.empty_array_bare {
                 out.push_str(": []");
             } else {
-                write_array_suffix::<DELIM>(arr, key_indent, cfg, out);
+                write_array_suffix::<DELIM>(arr, key_indent, cfg, true, out);
             }
         }
         _ => {
@@ -230,8 +242,89 @@ fn write_empty_array_legacy<const DELIM: u8>(out: &mut String) {
     out.push_str("]:");
 }
 
-fn write_array_suffix<const DELIM: u8>(arr: &Array, indent: usize, cfg: &Config, out: &mut String) {
-    let _ = cfg;
+/// Emit a field list `{f1<delim>f2{sub}<delim>…}` for a tabular or keyed header,
+/// recursing into nested field groups (§9.3).
+fn write_field_list<const DELIM: u8>(fields: &[Field], cfg: &Config, out: &mut String) {
+    out.push('{');
+    for (i, f) in fields.iter().enumerate() {
+        if i > 0 {
+            out.push(DELIM as char);
+        }
+        match f {
+            Field::Leaf(k) => write_key(k, cfg, out),
+            Field::Group(k, sub) => {
+                write_key(k, cfg, out);
+                write_field_list::<DELIM>(sub, cfg, out);
+            }
+        }
+    }
+    out.push('}');
+}
+
+/// Emit one row's cells in depth-first pre-order of the field list, so the cell
+/// count equals the header's leaf-field count (§9.3).
+fn write_row_cells<const DELIM: u8>(
+    m: &Object,
+    fields: &[Field],
+    cfg: &Config,
+    first: &mut bool,
+    out: &mut String,
+) {
+    for (idx, f) in fields.iter().enumerate() {
+        match f {
+            Field::Leaf(k) => {
+                if !*first {
+                    out.push(DELIM as char);
+                }
+                *first = false;
+                write_scalar::<DELIM>(column_value(m, idx, k).unwrap(), cfg, out);
+            }
+            Field::Group(k, sub) => {
+                let child = column_value(m, idx, k).unwrap().as_object().unwrap();
+                write_row_cells::<DELIM>(child, sub, cfg, first, out);
+            }
+        }
+    }
+}
+
+/// Emit the keyed tabular body `[N:<delim?>]{fields}:` plus one entry row per
+/// entry (§9.5). The caller has already written the key, if any — at the root
+/// the header is keyless.
+fn write_keyed_table<const DELIM: u8>(
+    m: &Object,
+    fields: &[Field],
+    indent: usize,
+    cfg: &Config,
+    out: &mut String,
+) {
+    out.push('[');
+    let mut len_buf = itoa::Buffer::new();
+    out.push_str(len_buf.format(m.len()));
+    out.push(':');
+    if DELIM != b',' {
+        out.push(DELIM as char);
+    }
+    out.push(']');
+    write_field_list::<DELIM>(fields, cfg, out);
+    out.push(':');
+
+    for (k, v) in m.iter() {
+        out.push('\n');
+        write_indent(indent + 1, out);
+        write_key(k, cfg, out);
+        out.push_str(": ");
+        let mut first = true;
+        write_row_cells::<DELIM>(v.as_object().unwrap(), fields, cfg, &mut first, out);
+    }
+}
+
+fn write_array_suffix<const DELIM: u8>(
+    arr: &Array,
+    indent: usize,
+    cfg: &Config,
+    allow_tabular: bool,
+    out: &mut String,
+) {
     if arr.is_empty() {
         write_empty_array_legacy::<DELIM>(out);
         return;
@@ -258,7 +351,31 @@ fn write_array_suffix<const DELIM: u8>(arr: &Array, indent: usize, cfg: &Config,
         return;
     }
 
-    if let Some((keys, uniform_order)) = table_keys(arr) {
+    // A keyless fields-bearing header is valid only at the document root (§6),
+    // so an array sitting in list-item position takes list form even when its
+    // elements would otherwise be tabular-eligible (§9.4).
+    let shape = if allow_tabular {
+        table_shape(arr)
+    } else {
+        None
+    };
+
+    if let Some(Table::Nested(fields)) = &shape {
+        write_field_list::<DELIM>(fields, cfg, out);
+        out.push(':');
+        for item in arr.iter() {
+            out.push('\n');
+            write_indent(indent + 1, out);
+            let mut first = true;
+            write_row_cells::<DELIM>(item.as_object().unwrap(), fields, cfg, &mut first, out);
+        }
+        return;
+    }
+
+    if let Some(Table::Flat(keys, uniform_order)) = shape {
+        // Writes the field list inline rather than through write_field_list:
+        // flat tables are the hot path, and routing them through `Field` would
+        // allocate a tree for a list of names that are all leaves.
         out.push('{');
         for (i, k) in keys.iter().enumerate() {
             if i > 0 {
@@ -319,7 +436,8 @@ fn write_list_item<const DELIM: u8>(v: &Value, l: usize, cfg: &Config, out: &mut
         }
         JsonType::Array => {
             out.push(' ');
-            write_array_suffix::<DELIM>(v.as_array().unwrap(), l, cfg, out);
+            // List-item position: no keyless tabular header here (§9.4).
+            write_array_suffix::<DELIM>(v.as_array().unwrap(), l, cfg, false, out);
         }
         _ => {
             out.push(' ');
@@ -439,6 +557,143 @@ fn write_indent(level: usize, out: &mut String) {
 
 fn is_scalar(v: &Value) -> bool {
     !matches!(v.get_type(), JsonType::Object | JsonType::Array)
+}
+
+/// One column of a tabular header (spec §9.3): a bare leaf field, or a nested
+/// field group whose sub-columns are themselves leaves or groups. Nesting depth
+/// is unbounded.
+enum Field<'a> {
+    Leaf(&'a str),
+    Group(&'a str, Vec<Field<'a>>),
+}
+
+/// Tabular shape of an array of objects (§9.3).
+enum Table<'a> {
+    /// Every column is uniform-primitive. The flag records whether all rows
+    /// share the first row's key order, letting cells be emitted by iterating
+    /// values in place instead of looking each key up.
+    Flat(Vec<&'a str>, bool),
+    /// At least one nested-uniform column, emitted as a nested field group.
+    Nested(Vec<Field<'a>>),
+}
+
+/// Value of column `k` in `m`. Rows normally share the header's key order, so
+/// try position `idx` first and fall back to a lookup only when it differs.
+#[inline]
+fn column_value<'a>(m: &'a Object, idx: usize, k: &str) -> Option<&'a Value> {
+    match m.iter().nth(idx) {
+        Some((ik, iv)) if ik == k => Some(iv),
+        _ => m.get(&k),
+    }
+}
+
+/// First-row probe for the §9.3 column rules: an array value or an empty object
+/// disqualifies its column outright, so a mismatch is visible from one object
+/// alone. Callers use it to bail in O(columns) before collecting every row;
+/// `build_fields` re-checks each column itself.
+#[inline]
+fn columns_could_be_uniform(first: &Object) -> bool {
+    !first.is_empty()
+        && first.iter().all(|(_, v)| match v.get_type() {
+            JsonType::Array => false,
+            JsonType::Object => !v.as_object().unwrap().is_empty(),
+            _ => true,
+        })
+}
+
+/// Field tree shared by `objs` (§9.3 column classification), or None when any
+/// column is neither uniform-primitive nor nested-uniform. Also used for the
+/// entry values of a keyed tabular object (§9.5).
+fn build_fields<'a>(objs: &[&'a Object]) -> Option<Vec<Field<'a>>> {
+    let first = *objs.first()?;
+    if first.is_empty() {
+        return None;
+    }
+    for m in &objs[1..] {
+        if m.len() != first.len() {
+            return None;
+        }
+    }
+
+    let mut fields = Vec::with_capacity(first.len());
+    for (idx, (k, v0)) in first.iter().enumerate() {
+        match v0.get_type() {
+            JsonType::Object => {
+                let sub0 = v0.as_object().unwrap();
+                if sub0.is_empty() {
+                    return None;
+                }
+                let mut subs = Vec::with_capacity(objs.len());
+                subs.push(sub0);
+                for m in &objs[1..] {
+                    let sub = column_value(m, idx, k)?.as_object()?;
+                    if sub.is_empty() {
+                        return None;
+                    }
+                    subs.push(sub);
+                }
+                fields.push(Field::Group(k, build_fields(&subs)?));
+            }
+            // Arrays disqualify the column outright; so does any row whose
+            // value at this key is not a primitive.
+            JsonType::Array => return None,
+            _ => {
+                for m in &objs[1..] {
+                    if !is_scalar(column_value(m, idx, k)?) {
+                        return None;
+                    }
+                }
+                fields.push(Field::Leaf(k));
+            }
+        }
+    }
+    Some(fields)
+}
+
+fn table_shape<'a>(arr: &'a Array) -> Option<Table<'a>> {
+    if let Some((keys, uniform_order)) = table_keys(arr) {
+        return Some(Table::Flat(keys, uniform_order));
+    }
+    // Flat detection bails at the first non-primitive value, but a column of
+    // uniform objects still qualifies as a nested field group (§9.3), so retry
+    // with the recursive walk. Probe the first element before walking all of
+    // them: with no object column there is nothing the flat pass missed, and a
+    // disqualifying value is usually already visible here — that keeps the
+    // common mixed-array case (a tabular-looking array with one list column)
+    // from paying for a full scan on its way to list form.
+    let probe = arr.iter().next()?.as_object()?;
+    if !columns_could_be_uniform(probe)
+        || !probe
+            .iter()
+            .any(|(_, v)| matches!(v.get_type(), JsonType::Object))
+    {
+        return None;
+    }
+
+    let mut objs = Vec::with_capacity(arr.len());
+    for v in arr.iter() {
+        objs.push(v.as_object()?);
+    }
+    Some(Table::Nested(build_fields(&objs)?))
+}
+
+/// Field tree when `m` qualifies for keyed tabular form (§9.5): at least two
+/// entries, every entry value a non-empty object, one shared key set, and every
+/// column uniform-primitive or nested-uniform.
+fn keyed_fields<'a>(m: &'a Object) -> Option<Vec<Field<'a>>> {
+    if m.len() < 2 {
+        return None;
+    }
+    // Cheap reject before allocating: most objects fail on their first entry.
+    let probe = m.iter().next()?.1.as_object()?;
+    if !columns_could_be_uniform(probe) {
+        return None;
+    }
+    let mut objs = Vec::with_capacity(m.len());
+    for (_, v) in m.iter() {
+        objs.push(v.as_object()?);
+    }
+    build_fields(&objs)
 }
 
 fn table_keys<'a>(arr: &'a Array) -> Option<(Vec<&'a str>, bool)> {
@@ -606,7 +861,7 @@ fn value_needs_quoting<const DELIM: u8>(s: &str, escape_controls: bool) -> bool 
     }
     let bytes = s.as_bytes();
     match bytes[0] {
-        b'-' | b'[' | b'{' | b'"' | b'#' | b' ' | b'\t' => return true,
+        b'-' | b'#' | b' ' | b'\t' => return true,
         _ => {}
     }
     match bytes[bytes.len() - 1] {
@@ -618,7 +873,10 @@ fn value_needs_quoting<const DELIM: u8>(s: &str, escape_controls: bool) -> bool 
     // and stays as a separate branch only for DELIM = '|'.
     for &b in bytes {
         match b {
-            b':' | b'\n' | b'\r' | b'\t' | b'"' | b'\\' => return true,
+            // Brackets and braces anywhere in the value, not just at position 0
+            // (spec §7.2) — an unquoted `]` would otherwise close a header the
+            // decoder is scanning.
+            b':' | b'\n' | b'\r' | b'\t' | b'"' | b'\\' | b'[' | b']' | b'{' | b'}' => return true,
             // Other U+0000–U+001F controls force quoting so write_quoted can
             // emit `\u00XX` (TOON spec v3.1); only when the option is on.
             _ if escape_controls && b < 0x20 => return true,
@@ -632,9 +890,11 @@ fn value_needs_quoting<const DELIM: u8>(s: &str, escape_controls: bool) -> bool 
     looks_like_number(bytes)
 }
 
+/// Numeric-like per spec §7.2: `^[+-]?[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?$`.
+/// The leading sign includes `+`, so `"+1"` is quoted and survives round-trip.
 fn looks_like_number(bytes: &[u8]) -> bool {
     let mut i = 0;
-    if bytes[0] == b'-' {
+    if matches!(bytes[0], b'-' | b'+') {
         i = 1;
         if i == bytes.len() {
             return false;
@@ -892,6 +1152,104 @@ mod tests {
             ),
             "data:\n  meta:\n    items[2]: 1,2\ndata.meta.items: literal"
         );
+    }
+
+    // ── Keyed tabular form (spec §9.5) ──
+    // The happy paths live in tests/fixtures/encode/objects-keyed.json; these
+    // pin the detection boundaries, where the object must stay nested.
+
+    #[test]
+    fn test_keyed_table_needs_two_entries() {
+        // A single entry stays nested — the header would cost more than it saves.
+        assert_eq!(enc(r#"{"m":{"a":{"x":1}}}"#), "m:\n  a:\n    x: 1");
+        assert_eq!(
+            enc(r#"{"m":{"a":{"x":1},"b":{"x":2}}}"#),
+            "m[2:]{x}:\n  a: 1\n  b: 2"
+        );
+    }
+
+    #[test]
+    fn test_keyed_table_rejects_non_uniform_columns() {
+        // Mismatched key sets, a non-object entry, and an array column each
+        // disqualify the whole object (§9.5 detection).
+        assert_eq!(
+            enc(r#"{"m":{"a":{"x":1},"b":{"y":2}}}"#),
+            "m:\n  a:\n    x: 1\n  b:\n    y: 2"
+        );
+        assert_eq!(
+            enc(r#"{"m":{"a":{"x":1},"b":7}}"#),
+            "m:\n  a:\n    x: 1\n  b: 7"
+        );
+        assert_eq!(
+            enc(r#"{"m":{"a":{"x":[1]},"b":{"x":[2]}}}"#),
+            "m:\n  a:\n    x[1]: 1\n  b:\n    x[1]: 2"
+        );
+    }
+
+    #[test]
+    fn test_keyed_table_not_used_for_array_elements() {
+        // The `q` column mixes an object with an array, so the array takes list
+        // form. Its first element is keyed-eligible on its own (two entries,
+        // one shared key set) but stays nested: array elements are anonymous
+        // and there is no `- [N:]{…}:` list item (§9.5, §10).
+        assert_eq!(
+            enc(r#"{"a":[{"p":{"x":1},"q":{"x":2}},{"p":{"x":3},"q":[9]}]}"#),
+            "a[2]:\n  - p:\n      x: 1\n    q:\n      x: 2\n  - p:\n      x: 3\n    q[1]: 9"
+        );
+    }
+
+    #[test]
+    fn test_keyed_eligible_column_becomes_nested_field_group() {
+        // In a tabular column, a keyed-eligible object encodes as a nested
+        // field group rather than a keyed table (§9.5).
+        assert_eq!(
+            enc(r#"{"a":[{"p":{"x":1},"q":{"x":2}}]}"#),
+            "a[1]{p{x},q{x}}:\n  1,2"
+        );
+    }
+
+    // ── Nested field groups (spec §9.3) ──
+
+    #[test]
+    fn test_nested_field_group_rejects_empty_object_column() {
+        // A column of empty objects has no subfields to declare, so the array
+        // falls back to list form.
+        assert_eq!(enc(r#"{"a":[{"n":{}},{"n":{}}]}"#), "a[2]:\n  - n:\n  - n:");
+    }
+
+    #[test]
+    fn test_nested_field_group_rejects_mixed_null_and_object_column() {
+        // `null` is a primitive, so the column is neither uniform-primitive nor
+        // nested-uniform (§9.3) and the array takes list form.
+        assert_eq!(
+            enc(r#"{"a":[{"n":{"x":1}},{"n":null}]}"#),
+            "a[2]:\n  - n:\n      x: 1\n  - n: null"
+        );
+    }
+
+    #[test]
+    fn test_nested_field_group_tolerates_row_key_reordering() {
+        // Key order may vary per element; cells still follow the header order.
+        assert_eq!(
+            enc(r#"{"a":[{"id":1,"g":{"x":1,"y":2}},{"g":{"y":4,"x":3},"id":2}]}"#),
+            "a[2]{id,g{x,y}}:\n  1,1,2\n  2,3,4"
+        );
+    }
+
+    // ── String quoting (spec §7.2) ──
+
+    #[test]
+    fn test_quotes_leading_plus_numeric_like_string() {
+        assert_eq!(enc(r#"{"a":"+1"}"#), r#"a: "+1""#);
+        assert_eq!(enc(r#"{"a":"+1.5e-3"}"#), r#"a: "+1.5e-3""#);
+        // A plus that does not form a number stays unquoted.
+        assert_eq!(enc(r#"{"a":"+x"}"#), "a: +x");
+    }
+
+    #[test]
+    fn test_quotes_brackets_and_braces_anywhere_in_value() {
+        assert_eq!(enc(r#"{"a":"x[1]"}"#), r#"a: "x[1]""#);
+        assert_eq!(enc(r#"{"a":"a}b"}"#), r#"a: "a}b""#);
     }
 
     // ── Depth guard (P0: prevents sonic-rs/emitter stack overflow) ──

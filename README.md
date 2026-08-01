@@ -7,25 +7,30 @@
 
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
-**8× faster than `toons`**, **2.7× faster than the official TS SDK**, byte-identical output.
+**Up to 7.6× faster than `toons`**, **3.0–8.3× faster than the official TS SDK**, byte-identical output — tracking **TOON spec v4.1**.
 
 [中文說明](https://github.com/coseto6125/etoon/blob/main/README.zh-TW.md)
 
 ## Performance
 
 Per-call encode time across representative payloads (`etoon` = Python/PyO3,
-best-of-7 × 2000 calls). `✓` = output byte-identical to etoon; `✗` = the
-encoder deviates from the TOON spec (e.g. py-rtoon emits `0.0` where the spec
-requires `0`).
+best-of-7 × 400 calls). `✓` = output byte-identical to etoon; `✗` = the encoder
+differs — either it deviates from the spec (py-rtoon emits `0.0` where the spec
+requires `0`) or it still implements spec v3.x and expands the v4.1 collapsing
+forms into nested blocks.
 
-| Payload (encode)        | etoon   | toons          | py-rtoon       | @toon-format/toon (TS) |
-|-------------------------|---------|----------------|----------------|------------------------|
-| 1000 uniform objects    | 169 µs  | 888 µs (5.2×✓) | 868 µs (5.1×✗) | 455 µs (2.7×✓)         |
-| deep nested             | 123 µs  | 291 µs (2.4×✓) | 737 µs (6.0×✗) | 602 µs (4.9×✓)         |
-| 1000 string records     | 93 µs   | 747 µs (8.0×✓) | 596 µs (6.4×✓) | 640 µs (6.9×✓)         |
-| 500 mixed objects       | 136 µs  | 755 µs (5.5×✓) | 599 µs (4.4×✗) | 1165 µs (8.6×✓)        |
+| Payload (encode)         | etoon   | toons           | py-rtoon        | @toon-format/toon 4.1 (TS) |
+|--------------------------|---------|-----------------|-----------------|----------------------------|
+| 1000 uniform objects     | 171 µs  | 848 µs (5.0×✓)  | 772 µs (4.5×✗)  | 519 µs (3.0×✓)             |
+| deep nested              | 110 µs  | 272 µs (2.5×✓)  | 662 µs (6.0×✗)  | 611 µs (5.6×✓)             |
+| 1000 string records      | 89 µs   | 674 µs (7.6×✓)  | 540 µs (6.1×✓)  | 640 µs (7.2×✓)             |
+| 500 mixed objects        | 140 µs  | 680 µs (4.8×✓)  | 541 µs (3.9×✗)  | 1166 µs (8.3×✓)            |
+| 1000 nested field groups | 190 µs  | 1103 µs (5.8×✗) | 953 µs (5.0×✗)  | 586 µs (3.1×✓)             |
+| 1000 keyed-tabular rows  | 105 µs  | 679 µs (6.5×✗)  | 562 µs (5.4×✗)  | 603 µs (5.8×✓)             |
 
-**2.4–8.6× faster** than every other encoder, with **byte-identical, spec-canonical** output (toons and the TS SDK match byte-for-byte; py-rtoon does not).
+**2.5–8.3× faster** than every other encoder, with **byte-identical,
+spec-canonical** output: only the official TS SDK matches etoon byte-for-byte on
+all six payloads.
 
 The CLI (`… | etoon`) adds process-spawn + pipe I/O on top — fine for shell
 pipelines / LLM logs, but for in-process use prefer the PyO3 `dumps` (no spawn,
@@ -257,14 +262,45 @@ Key optimizations:
 - **sonic-rs SIMD JSON parser** (~7× faster than serde_json)
 - **orjson bridge** — single boundary crossing (vs PyO3-based alternatives)
 - **uniform-order table fast path** — skips 300 key lookups per 50-row table
+- **first-row column probe** — an array or empty-object value rules out tabular
+  form from one element alone, so mixed arrays reach list form in O(columns)
 - **itoa specialized integer formatting**
 
 ## Compatibility
 
-Output is byte-identical to the `toons` Python package (Apache 2.0) and the
-official `toon-format/toon` TypeScript SDK. Passes **111/111** TOON spec
-fixtures covering primitives, objects, arrays (primitive/tabular/nested/bulleted),
-and whitespace.
+Tracks **TOON spec v4.1**. Output is byte-identical to the official
+`toon-format/toon` TypeScript SDK 4.1, and passes **178/179** cases of the
+official [`toon-format/spec`](https://github.com/toon-format/spec) encode
+fixture suite — every case except one requiring a non-default `indentSize`
+(etoon hardcodes 2 spaces).
+
+### v4 collapsing forms
+
+Spec v4.0 added two forms that cut nesting out of common shapes, both
+implemented here:
+
+```bash
+# Nested field groups (§9.3) — uniform nested objects become header columns
+echo '[{"id":1,"customer":{"name":"Ada","country":"DK"},"total":99}]' | etoon
+# orders[1]{id,customer{name,country},total}:
+#   1,Ada,DK,99
+
+# Keyed tabular (§9.5) — an object of uniform objects becomes a keyed table
+echo '{"alpha":{"host":"a.example.com","port":8080},"beta":{"host":"b.example.com","port":9090}}' | etoon
+# [2:]{host,port}:
+#   alpha: a.example.com,8080
+#   beta: b.example.com,9090
+```
+
+On the benchmark payloads these cut encoded size by **76.6%** (nested field
+groups) and **31.9%** (keyed tabular) against the v3.x nested output.
+
+Spec v4.0 also **removed** key folding and path expansion — folded output is
+still valid TOON (dotted keys are literal keys), but no decoder re-nests it, so
+`fold_keys` is now an etoon extension rather than a spec option. The upstream
+rationale is in [`.out-of-scope/key-folding.md`](https://github.com/toon-format/spec/blob/main/.out-of-scope/key-folding.md):
+0.00% token savings on the reference benchmarks, wire ambiguity against literal
+dotted keys, and incompatibility with streaming decode.
 
 ## Sigil-prefixed keys (`@`, `$`, `#`)
 
@@ -307,13 +343,14 @@ Savings increase with volume — 50 entries reach **35%+** (tiktoken) as the tab
 
 ## Advanced options
 
-> These are [TOON spec](https://github.com/toon-format/toon) optional parameters, intended for **programmatic use in your codebase** (Python / Rust library calls). The CLI `| etoon` pipe for LLM workflows uses defaults and does not need these.
+> Intended for **programmatic use in your codebase** (Python / Rust library calls). The CLI `| etoon` pipe for LLM workflows uses defaults and does not need these.
 
 ```python
-# Custom delimiter (when values contain commas)
+# Custom delimiter (when values contain commas) — TOON spec §11
 etoon.dumps(data, delimiter="|")   # or "\t"
 
 # Key folding: collapse {a:{b:{c:1}}} → "a.b.c: 1"
+# etoon extension — removed from the spec in v4.0, so nothing re-nests it.
 etoon.dumps(data, fold_keys=True)
 etoon.dumps(data, fold_keys=True, flatten_depth=2)  # partial fold
 ```
@@ -322,9 +359,13 @@ etoon.dumps(data, fold_keys=True, flatten_depth=2)  # partial fold
 
 - Integers > 2⁶³ are lossily coerced via f64 (works for most common big integers
   that happen to be representable; arbitrary-precision is not supported).
-- Custom `indent` is hardcoded to 2 spaces (TOON spec default).
+- `indentSize` is hardcoded to 2 spaces (TOON spec default).
+- Encoder only — etoon does not decode TOON back to JSON.
 
 ## License
 
-Apache 2.0. Test fixtures in `tests/fixtures/` are sourced from the
-[toons](https://github.com/alesanfra/toons) project (Apache 2.0).
+Apache 2.0. Test fixtures in `tests/fixtures/` come from the
+[toon-format/spec](https://github.com/toon-format/spec) suite (MIT), except the
+etoon-local `key-folding.json` which derives from
+[toons](https://github.com/alesanfra/toons) (Apache 2.0). See
+[ATTRIBUTION.md](ATTRIBUTION.md).
