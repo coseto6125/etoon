@@ -1,6 +1,6 @@
 [package]
 name = "etoon"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 description = "Fast TOON (Token-Oriented Object Notation) encoder tracking spec v4.1. Up to 7.6x faster than toons, 3.0-8.3x faster than the official TS SDK."
 license = "Apache-2.0"
@@ -26,7 +26,7 @@ default = []
 python = ["dep:pyo3"]
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.29", features = ["extension-module"], optional = true }
 sonic-rs = { version = "0.5.8", default-features = false }
 itoa = "1.0.18"
 ryu = "1.0.20"
