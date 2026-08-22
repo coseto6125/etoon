@@ -8,11 +8,14 @@ Two layers of probes pin them together through observable behavior only:
 1. ``dumps`` level — omitting an option equals passing its documented
    default explicitly. Pins the Python signature.
 2. ``dumps_bytes`` level — calling the raw binding with NO kwargs equals
-   passing every default explicitly. This is the only path that exercises
+   passing its documented default explicitly, on payloads chosen so each
+   option changes the output. This is the only path that exercises
    ``Config::default``, so it is the only one that can catch Rust-side
    default drift.
 
-If either side drifts, an equality fails.
+If either side drifts, an equality fails — except ``flatten_depth``,
+which zero kwargs cannot observe: at the defaults ``key_folding`` is off,
+so folding never runs. It is pinned only by the ``dumps`` probe above.
 """
 
 import orjson
@@ -109,6 +112,33 @@ def test_binding_rust_default_max_input_bytes_disabled():
     # a nonzero default would reject this; disabled accepts it like the
     # explicit default does
     assert isinstance(_dumps_bytes()(big), type(_dumps_bytes()(big, max_input_bytes=0)))
+
+
+def test_binding_rust_default_key_folding_is_false():
+    # payload must nest an object chain, or fold on/off emits identical bytes
+    db = _dumps_bytes()
+    x = orjson.dumps({"a": {"b": 1}})
+    assert db(x) == db(x, key_folding=False) == "a:\n  b: 1"
+
+
+def test_binding_rust_default_empty_array_bare_is_true():
+    # an array value is required: scalars look identical under either setting
+    db = _dumps_bytes()
+    x = orjson.dumps({"k": []})
+    assert db(x) == db(x, empty_array_bare=True) == "k: []"
+
+
+def test_binding_rust_default_max_depth_is_1000():
+    # drift in either direction trips this: lower rejects depth 1000, higher
+    # (or 0 = disabled) accepts depth 1001
+    db = _dumps_bytes()
+
+    def nested(n):
+        return ('{"a":' * n + "1" + "}" * n).encode()
+
+    assert isinstance(db(nested(1000)), str)
+    with pytest.raises(ValueError, match="max_depth"):
+        db(nested(1001))
 
 
 def test_binding_rejects_unknown_kwargs():
