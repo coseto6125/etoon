@@ -7,6 +7,7 @@
 //! byte-match inner loops fold away when emitting default-comma output.
 
 use sonic_rs::{Array, JsonContainerTrait, JsonType, JsonValueTrait, Object, Value};
+use std::fmt;
 use std::fmt::Write as _;
 
 /// Encoder configuration. The spec's only encoder options are `delimiter` and
@@ -55,17 +56,55 @@ impl Default for Config {
     }
 }
 
-pub fn encode(json_bytes: &[u8]) -> Result<String, String> {
+/// Why [`encode_with`] refused input. `Display` renders the exact message
+/// texts callers match on today; treat wording as part of the API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EncodeError {
+    /// Input is larger than `Config::max_input_bytes`.
+    MaxInputBytes { size: usize, limit: usize },
+    /// Input nests deeper than `Config::max_depth`.
+    MaxDepth { depth: usize, limit: usize },
+    /// The input is not valid JSON; carries the parser's message.
+    JsonParse(String),
+    /// `Config::delimiter` is not `,`, `\t`, or `|`.
+    Delimiter,
+}
+
+impl fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MaxInputBytes { size, limit } => {
+                write!(f, "input exceeds max_input_bytes ({size} > {limit})")
+            }
+            Self::MaxDepth { depth, limit } => {
+                write!(f, "input exceeds max_depth ({depth} > {limit})")
+            }
+            Self::JsonParse(msg) => write!(f, "JSON parse error: {msg}"),
+            Self::Delimiter => write!(f, "delimiter must be ',', '\\t', or '|'"),
+        }
+    }
+}
+
+impl std::error::Error for EncodeError {}
+
+// Compile-time pin: downstream code lifting this error into Box<dyn Error>
+// needs the trait, and 0.7.2's String errors provided it implicitly.
+#[allow(dead_code)]
+fn _assert_encode_error_is_std_error() {
+    fn requires<E: std::error::Error>(_: &E) {}
+    requires(&EncodeError::Delimiter);
+}
+
+pub fn encode(json_bytes: &[u8]) -> Result<String, EncodeError> {
     encode_with(json_bytes, &Config::default())
 }
 
-pub fn encode_with(json_bytes: &[u8], cfg: &Config) -> Result<String, String> {
+pub fn encode_with(json_bytes: &[u8], cfg: &Config) -> Result<String, EncodeError> {
     if cfg.max_input_bytes != 0 && json_bytes.len() > cfg.max_input_bytes {
-        return Err(format!(
-            "input exceeds max_input_bytes ({} > {})",
-            json_bytes.len(),
-            cfg.max_input_bytes
-        ));
+        return Err(EncodeError::MaxInputBytes {
+            size: json_bytes.len(),
+            limit: cfg.max_input_bytes,
+        });
     }
     // Reject over-deep input up front: the sonic-rs DOM parser and this
     // emitter both recurse per nesting level and overflow the stack on
@@ -73,20 +112,20 @@ pub fn encode_with(json_bytes: &[u8], cfg: &Config) -> Result<String, String> {
     // max_depth == 0 skips it (caller guarantees depth is already bounded).
     if cfg.max_depth != 0 {
         if let Some(depth) = scan_exceeds_depth(json_bytes, cfg.max_depth) {
-            return Err(format!(
-                "input exceeds max_depth ({} > {})",
-                depth, cfg.max_depth
-            ));
+            return Err(EncodeError::MaxDepth {
+                depth,
+                limit: cfg.max_depth,
+            });
         }
     }
     let value: Value =
-        sonic_rs::from_slice(json_bytes).map_err(|e| format!("JSON parse error: {}", e))?;
+        sonic_rs::from_slice(json_bytes).map_err(|e| EncodeError::JsonParse(e.to_string()))?;
     let mut out = String::with_capacity(json_bytes.len());
     match cfg.delimiter {
         b',' => write_root::<b','>(&value, cfg, &mut out),
         b'\t' => write_root::<b'\t'>(&value, cfg, &mut out),
         b'|' => write_root::<b'|'>(&value, cfg, &mut out),
-        _ => return Err("delimiter must be ',', '\\t', or '|'".to_string()),
+        _ => return Err(EncodeError::Delimiter),
     }
     Ok(out)
 }
@@ -980,7 +1019,7 @@ fn write_quoted(s: &str, escape_controls: bool, out: &mut String) {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode, encode_with, Config};
+    use super::{encode, encode_with, Config, EncodeError};
 
     fn enc(json: &str) -> String {
         encode(json.as_bytes()).unwrap()
@@ -988,6 +1027,57 @@ mod tests {
 
     fn enc_with(json: &str, cfg: &Config) -> String {
         encode_with(json.as_bytes(), cfg).unwrap()
+    }
+
+    // ── Error surface ──
+    // The CLI prints Display output verbatim and the PyO3 binding forwards it;
+    // a wording change here is an API change.
+
+    #[test]
+    fn test_encode_error_max_depth_carries_fields_and_exact_message() {
+        let deep = format!("{}1{}", "{\"a\":".repeat(11), "}".repeat(11));
+        let cfg = Config {
+            max_depth: 10,
+            ..Config::default()
+        };
+        let err = encode_with(deep.as_bytes(), &cfg).unwrap_err();
+        assert_eq!(
+            err,
+            EncodeError::MaxDepth {
+                depth: 11,
+                limit: 10
+            }
+        );
+        assert_eq!(err.to_string(), "input exceeds max_depth (11 > 10)");
+    }
+
+    #[test]
+    fn test_encode_error_max_input_bytes_carries_fields_and_exact_message() {
+        let cfg = Config {
+            max_input_bytes: 1,
+            ..Config::default()
+        };
+        let err = encode_with(b"{}", &cfg).unwrap_err();
+        assert_eq!(err, EncodeError::MaxInputBytes { size: 2, limit: 1 });
+        assert_eq!(err.to_string(), "input exceeds max_input_bytes (2 > 1)");
+    }
+
+    #[test]
+    fn test_encode_error_json_parse_wraps_parser_message() {
+        let err = encode(b"{oops").unwrap_err();
+        assert!(matches!(err, EncodeError::JsonParse(_)));
+        assert!(
+            err.to_string().starts_with("JSON parse error: "),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn test_encode_error_delimiter_display_is_stable() {
+        assert_eq!(
+            EncodeError::Delimiter.to_string(),
+            "delimiter must be ',', '\\t', or '|'"
+        );
     }
 
     // ── Number formatting (JSON → Rust path; no Python repr to lean on) ──
@@ -1269,7 +1359,7 @@ mod tests {
             ..Config::default()
         };
         let err = encode_with(&deep, &cfg).unwrap_err();
-        assert!(err.contains("max_depth"), "got: {err}");
+        assert!(err.to_string().contains("max_depth"), "got: {err}");
     }
 
     #[test]
@@ -1300,7 +1390,7 @@ mod tests {
             ..Config::default()
         };
         let err = encode_with(br#"{"a":1}"#, &cfg).unwrap_err();
-        assert!(err.contains("max_input_bytes"), "got: {err}");
+        assert!(err.to_string().contains("max_input_bytes"), "got: {err}");
     }
 
     #[test]

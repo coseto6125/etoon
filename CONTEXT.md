@@ -32,6 +32,15 @@ parity probes.
 - **keyless header**: fields-bearing header without a key; valid only at document root (§6)
 - **list form**: `- `-prefixed items when tabular detection declines
 
+## Errors
+
+`toon::EncodeError` is the single Rust-side failure type. Variants carry
+structured fields; `Display` renders the exact texts callers match on
+(`input exceeds max_depth (... > ...)`, `input exceeds max_input_bytes
+(... > ...)`, `JSON parse error: ...`, `delimiter must be ',', '\t', or
+'|'`) — wording is API. The CLI prints `Display` verbatim; the PyO3
+binding surfaces every variant as Python `ValueError`.
+
 ## Layers
 
 Python caller → `etoon.dumps` (facade, Python truth) → `_etoon.dumps_bytes`
