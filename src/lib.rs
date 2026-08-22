@@ -22,12 +22,18 @@ mod py_binding {
         max_depth: usize,
         max_input_bytes: usize,
     ) -> PyResult<String> {
-        let delim = delimiter.as_bytes().first().copied().unwrap_or(b',');
-        if !matches!(delim, b',' | b'\t' | b'|') {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "delimiter must be ',', '\\t', or '|'",
-            ));
-        }
+        // Exact single-byte match: an empty or multi-character delimiter must
+        // raise instead of silently falling back to its first byte.
+        let delim = match delimiter.as_bytes() {
+            b"," => b',',
+            b"\t" => b'\t',
+            b"|" => b'|',
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "delimiter must be ',', '\\t', or '|'",
+                ))
+            }
+        };
         let cfg = Config {
             delimiter: delim,
             key_folding,

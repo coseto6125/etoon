@@ -64,19 +64,21 @@ def dumps(
             untrusted byte input. Ignored for dict/list input (orjson has already
             allocated the serialized bytes by the time encoding runs).
     """
-    bytes_args = (
-        delimiter,
-        fold_keys,
-        flatten_depth,
-        empty_array_bare,
-        escape_controls,
-        max_depth,
-        max_input_bytes,
-    )
+    # One named construction point for every option: keyword arguments at each
+    # call site cannot be misrouted if a new option is inserted later.
+    opts = {
+        "delimiter": delimiter,
+        "key_folding": fold_keys,
+        "flatten_depth": flatten_depth,
+        "empty_array_bare": empty_array_bare,
+        "escape_controls": escape_controls,
+        "max_depth": max_depth,
+        "max_input_bytes": max_input_bytes,
+    }
     if isinstance(data, bytes):
-        return _dumps_bytes(data, *bytes_args)
+        return _dumps_bytes(data, **opts)
     if isinstance(data, bytearray):
-        return _dumps_bytes(bytes(data), *bytes_args)
+        return _dumps_bytes(bytes(data), **opts)
     try:
         json_bytes = orjson.dumps(data)
     except TypeError:
@@ -86,6 +88,6 @@ def dumps(
         json_bytes = _stdlib_json.dumps(data, ensure_ascii=False).encode("utf-8")
     # orjson/stdlib output is already depth-bounded by CPython's recursion
     # limit, so skip the depth/size pre-scan (max_depth=0) on this hot path.
-    return _dumps_bytes(
-        json_bytes, delimiter, fold_keys, flatten_depth, empty_array_bare, escape_controls, 0, 0
-    )
+    opts["max_depth"] = 0
+    opts["max_input_bytes"] = 0
+    return _dumps_bytes(json_bytes, **opts)
