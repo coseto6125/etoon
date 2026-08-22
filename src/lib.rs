@@ -84,7 +84,7 @@ mod py_binding {
         let cfg = config_from_kwargs(kwargs)?;
         let bytes = json_bytes.as_bytes();
         py.detach(|| encode_with(bytes, &cfg))
-            .map_err(PyValueError::new_err)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pymodule]
