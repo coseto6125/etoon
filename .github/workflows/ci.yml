@@ -29,7 +29,7 @@ jobs:
       - name: Run TOON spec fixtures
         run: |
           . .venv/bin/activate
-          python -m pytest tests/test_spec_fixtures.py -q
+          python -m pytest tests/ -q
       - name: Run Rust unit tests
         run: cargo test --no-default-features
       - name: Build CLI binary
