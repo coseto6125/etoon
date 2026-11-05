@@ -1,7 +1,7 @@
 //! TOON encoder core (sonic-rs backend).
 //!
 //! Input: JSON bytes (from orjson.dumps on Python side).
-//! Output: TOON string, matching TOON spec v4.1.
+//! Output: TOON string, matching TOON spec v4.4.
 //!
 //! Delimiter is monomorphized via const generics (`DELIM: u8`) so the
 //! byte-match inner loops fold away when emitting default-comma output.
@@ -1136,21 +1136,30 @@ mod tests {
     #[test]
     fn test_write_root_string_leading_bom_is_quoted() {
         assert_eq!(enc("\"\u{FEFF}8\""), "\"\u{FEFF}8\"");
-        assert_eq!(enc("\"8\u{FEFF}\""), "8\u{FEFF}");
-        // Only the document start loses a BOM: an object value keeps it unquoted.
-        assert_eq!(enc("{\"d\":\"\u{FEFF}x\"}"), "d: \u{FEFF}x");
         // A BOM-only string and a double BOM keep every BOM inside the quotes.
         assert_eq!(enc("\"\u{FEFF}\""), "\"\u{FEFF}\"");
         assert_eq!(enc("\"\u{FEFF}\u{FEFF}x\""), "\"\u{FEFF}\u{FEFF}x\"");
-        // The first key of a root object is quoted by the key rules.
-        assert_eq!(enc("{\"\u{FEFF}k\":1}"), "\"\u{FEFF}k\": 1");
+    }
+
+    #[test]
+    fn test_write_root_bom_outside_document_start_stays_unquoted() {
+        assert_eq!(enc("\"8\u{FEFF}\""), "8\u{FEFF}");
+        // Only the document start loses a BOM: an object value keeps it unquoted.
+        assert_eq!(enc("{\"d\":\"\u{FEFF}x\"}"), "d: \u{FEFF}x");
         // A root array starts with its header, so its first item keeps the BOM unquoted.
         assert_eq!(enc("[\"\u{FEFF}x\"]"), "[1]: \u{FEFF}x");
     }
 
     #[test]
-    fn test_write_root_string_leading_bom_keeps_config_escaping() {
-        // The quote forces an object value into quotes too, so its quoted form is the oracle.
+    fn test_write_key_leading_bom_is_quoted() {
+        // The first key of a root object starts the document too.
+        assert_eq!(enc("{\"\u{FEFF}k\":1}"), "\"\u{FEFF}k\": 1");
+    }
+
+    #[test]
+    fn test_write_root_string_leading_bom_quotes_under_every_config() {
+        // The quote forces an object value into quotes too, so its quoted form is the
+        // escaping oracle. The two plain strings need quotes only for the BOM.
         let s = "\u{FEFF}a\\\"b\\\\c\\u0001d,e\\t|f";
         for delimiter in *b",\t|" {
             for escape_controls in [true, false] {
@@ -1159,9 +1168,14 @@ mod tests {
                     escape_controls,
                     ..Default::default()
                 };
+                assert_eq!(enc_with("\"\u{FEFF}8\"", &cfg), "\"\u{FEFF}8\"");
+                let control = if escape_controls { "\\u0001" } else { "\u{1}" };
+                assert_eq!(
+                    enc_with("\"\u{FEFF}a\\u0001\"", &cfg),
+                    format!("\"\u{FEFF}a{control}\"")
+                );
                 let root = enc_with(&format!("\"{s}\""), &cfg);
                 let value = enc_with(&format!("{{\"d\":\"{s}\"}}"), &cfg);
-                assert!(root.starts_with("\"\u{FEFF}a"), "{root:?}");
                 assert_eq!(Some(root.as_str()), value.strip_prefix("d: "));
             }
         }

@@ -7,7 +7,7 @@
 
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
-**Up to 7.6× faster than `toons`**, **3.0–8.3× faster than the official TS SDK**, byte-identical output — tracking **TOON spec v4.4**.
+**Up to 7.6× faster than `toons`**, **3.0–8.3× faster than the official TS SDK**, byte-identical output on the spec suite — tracking **TOON spec v4.4**.
 
 [中文說明](https://github.com/coseto6125/etoon/blob/main/README.zh-TW.md)
 
@@ -16,7 +16,7 @@ Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation
 Per-call encode time across representative payloads (`etoon` = Python/PyO3,
 best-of-7 × 400 calls). `✓` = output byte-identical to etoon; `✗` = the encoder
 differs — either it deviates from the spec (py-rtoon emits `0.0` where the spec
-requires `0`) or it still implements spec v3.x and expands the v4.1 collapsing
+requires `0`) or it still implements spec v3.x and expands the v4.0 collapsing
 forms into nested blocks.
 
 | Payload (encode)         | etoon   | toons           | py-rtoon        | @toon-format/toon 4.1 (TS) |
@@ -350,11 +350,24 @@ Key optimizations:
 
 ## Compatibility
 
-Tracks **TOON spec v4.4**. Output is byte-identical to the official
-`toon-format/toon` TypeScript SDK 4.4, and passes **158/160** cases of the
-official [`toon-format/spec`](https://github.com/toon-format/spec) encode
-fixture suite (`v4.4.0`) — every case except two requiring a non-default
-`indentSize` (etoon hardcodes 2 spaces).
+Tracks **TOON spec v4.4**. Passes **158/160** cases of the official
+[`toon-format/spec`](https://github.com/toon-format/spec) encode fixture suite
+(`v4.4.0`): every case except two requiring a non-default `indentSize` (etoon
+hardcodes 2 spaces).
+
+Output is byte-identical to the official `toon-format/toon` TypeScript SDK 4.4,
+except in three places:
+
+| Input | etoon | TS SDK 4.4 | Spec |
+|---|---|---|---|
+| Number with 0 < \|n\| < 1e-6 or \|n\| ≥ 1e21 | plain decimal, `0.0000001` | exponent, `1e-7` | §2 allows both |
+| Integer beyond 2^53 that fits in i64 or u64 | exact, `123456789012345678` | rounded, `123456789012345680` | — |
+| Key starting with `@`, `$` or `#` | unquoted, `#id: 1` | quoted, `"#id": 1` | §7.3 requires quotes |
+
+The sigil keys are a deliberate etoon extension (see
+[Sigil-prefixed keys](#sigil-prefixed-keys---)). A spec decoder reads a line
+that starts with `#` as a comment: it drops a `#` key with a scalar value, and a
+`#` key with an object or array value can make the whole document fail to decode.
 
 ### v4 collapsing forms
 
@@ -364,7 +377,7 @@ implemented here:
 ```bash
 # Nested field groups (§9.3) — uniform nested objects become header columns
 echo '[{"id":1,"customer":{"name":"Ada","country":"DK"},"total":99}]' | etoon
-# orders[1]{id,customer{name,country},total}:
+# [1]{id,customer{name,country},total}:
 #   1,Ada,DK,99
 
 # Keyed tabular (§9.5) — an object of uniform objects becomes a keyed table
@@ -387,6 +400,11 @@ dotted keys, and incompatibility with streaming decode.
 ## Sigil-prefixed keys (`@`, `$`, `#`)
 
 Keys starting with `@`, `$`, or `#` are treated as valid identifiers — **no quoting needed**. This gives native support for:
+
+> **Note:** this deviates from spec §7.3, which quotes these keys. The output is
+> meant for an LLM to read. A TOON spec decoder reads a line that starts with `#`
+> as a comment (§5.1): it drops a `#` key with a scalar value, and a `#` key with
+> an object or array value can make the whole document fail to decode.
 
 | Sigil | Ecosystem | Examples |
 |-------|-----------|----------|

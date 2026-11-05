@@ -9,9 +9,11 @@
 language-agnostic encode fixture suite for TOON spec v4.4. No modifications
 have been made to the fixture contents.
 
-`spec-v4.1-legacy.json` holds the cases of the same suite at `v4.1.1` that
-`v4.4.0` no longer lists (MIT License), unchanged except that each name carries
-its source file.
+`spec-v4.1-legacy.json` holds the cases of the same suite at `v4.1.1` whose
+input, options or expected output `v4.4.0` no longer contains (MIT License):
+50 cases that `v4.4.0` removed and 6 that it rewrote under the same name. The
+cases are unchanged except that each name carries its source file. One case
+that `v4.4.0` changed only by reordering the keys of an input row is left out.
 
 `key-folding.json` is etoon-local. It started from the
 [toons](https://github.com/alesanfra/toons) project by Alessandro Sanfratello
