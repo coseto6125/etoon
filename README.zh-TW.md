@@ -184,6 +184,76 @@ reaches the conversation. etoon auto-detects JSON, mixed log, and plain text.
 Skip only for byte-exact diff or single-value lookups (1-2 lines).
 ````
 
+也可以交給 `PreToolUse` hook 自動補上。`etoon hook claude` 會在每個 Bash 命令後面接
+`| etoon`，不必靠模型記得規則。加到 `~/.claude/settings.json`（或專案的 `.claude/settings.json`）：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "etoon hook claude" }] }
+    ]
+  }
+}
+```
+
+hook 把 `CMD` 改寫成
+`CMD | etoon; __etoon_rc=${PIPESTATUS[${#PIPESTATUS[@]}-2]}; (exit $__etoon_rc)`。
+後綴還原 etoon 前一個 pipeline 元素的 exit status，失敗的命令仍然回報失敗。改寫前先去掉結尾換行與結尾的空白行。
+`tool_input` 的其他欄位（`description`、`timeout`、`run_in_background`）會保留，rtk 有設定的欄位除外（見下文）。
+
+改寫的限制：
+
+- 後綴需要 **bash**（`PIPESTATUS`）。在 zsh 下狀態會讀成 0。
+- `etoon` 必須在 Bash 工具的 `PATH` 上，否則輸出會遺失。
+- 複合命令（`a; b`、`a && b`）只有最後一個 pipeline 經過 etoon。
+- `! CMD`，或 session 先前已設 `pipefail`，會改變後綴無法還原的狀態。結尾的 `# 註解` 會把後綴一起註解掉（不會編碼）。
+
+命中下列任一規則時，命令不接 etoon：
+
+| # | 規則 | 原因 |
+|---|------|------|
+| 1 | 命令已經接了 `etoon` | 避免重複 |
+| 2 | 結尾是 `&`、`;` 或 `\` | 背景工作、語法錯誤、續行 |
+| 3 | 某一行最後一段 pipe 有輸出重導（`> f`、`>> f`） | 輸出已寫入檔案 |
+| 4 | pipe 接上的那段命令是 shell builtin（`cd`、`export`、`source`……），包含 `&&`、`\|\|`、`;`、`&` 之後的 | pipe 會讓它跑在 subshell |
+| 5 | `git diff` 或 `diff` | 需要 byte-exact 輸出 |
+| 6 | 明確要 JSON（`--json`、`-o json`、`--format=json`、`{{json .}}`） | 需要 byte-exact 輸出 |
+| 7 | 含 heredoc（`<<`，不含 `<<<`） | pipe 會破壞結尾定界符 |
+| 8 | 含 `pipefail` | 後綴只讀一個 pipeline 元素的狀態 |
+
+**rtk。** `PATH` 上有 [rtk](https://github.com/rtk-ai/rtk) 時，hook 先跑 `rtk hook claude`，
+再在 rtk 的改寫後面接 etoon。Claude Code 每次工具呼叫只採用一份 `updatedInput`，
+所以用這個 hook 取代 rtk 自己的 hook，不要兩個都掛。skip 規則看的是 rtk 改寫前的命令。
+rtk 的 `updatedInput` 欄位會取代 tool input 的同名欄位，其餘欄位保留。rtk 最多執行 5 秒。
+
+**`--pre CMD`**（也可寫成 `--pre=CMD`，最多一次）。外部改寫器在 rtk 與 etoon 之前執行：
+
+- `CMD` 依空白切成程式與參數，不支援 shell 引號。hook 把 Bash 命令接在最後一個參數。
+- 改寫器在 stdout 印出新命令並以 0 結束。結尾換行會被去掉。
+- 非 0 結束、輸出為空、只有空白或非 UTF-8、無法啟動、執行超過 2 秒，都保留原命令。
+- 含 NUL byte 或以 `-` 開頭的命令不經過改寫器。
+- rtk 失敗或命中 skip 規則時，改寫後的命令照樣送出。
+
+```bash
+etoon hook claude --pre "my-rewriter --mode strict"
+# 執行：my-rewriter --mode strict '<Bash 命令>'
+```
+
+hook 會丟棄 rtk 與改寫器的 stderr。逾時只會終止直接子程序。
+
+**Fail open。** hook 不會因為自己的錯誤擋下命令：
+
+| 情況 | stdout | Exit |
+|------|--------|------|
+| 改寫 | 一份 JSON decision | 0 |
+| 不是 Bash、沒有命令、命令為空或只有空白、stdin 不是 JSON | 無 | 0 |
+| rtk 失敗（任何非 0 exit、逾時、JSON 壞掉） | 無，或 `--pre` 的改寫 | 0 |
+| hook 內部 panic | 無 | 0 |
+| hook 參數錯誤 | 無（usage 印在 stderr） | 1 |
+
+exit 1 時 Claude Code 照樣執行命令。`etoon hook claude --help` 印出 usage。只打 `etoon hook`（沒有 `claude`）仍然讀取名為 `hook` 的檔案。
+
 #### Cursor
 
 加到 `.cursor/rules/etoon.mdc`：
