@@ -7,7 +7,7 @@
 
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
-**Up to 7.6× faster than `toons`**, **3.0–8.3× faster than the official TS SDK**, byte-identical output — tracking **TOON spec v4.1**.
+**Up to 7.6× faster than `toons`**, **3.0–8.3× faster than the official TS SDK**, byte-identical output — tracking **TOON spec v4.4**.
 
 [中文說明](https://github.com/coseto6125/etoon/blob/main/README.zh-TW.md)
 
@@ -350,11 +350,11 @@ Key optimizations:
 
 ## Compatibility
 
-Tracks **TOON spec v4.1**. Output is byte-identical to the official
-`toon-format/toon` TypeScript SDK 4.1, and passes **178/179** cases of the
+Tracks **TOON spec v4.4**. Output is byte-identical to the official
+`toon-format/toon` TypeScript SDK 4.4, and passes **158/160** cases of the
 official [`toon-format/spec`](https://github.com/toon-format/spec) encode
-fixture suite — every case except one requiring a non-default `indentSize`
-(etoon hardcodes 2 spaces).
+fixture suite (`v4.4.0`) — every case except two requiring a non-default
+`indentSize` (etoon hardcodes 2 spaces).
 
 ### v4 collapsing forms
 

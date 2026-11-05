@@ -7,7 +7,7 @@
 
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
-**比 `toons` 最多快 7.6 倍**、**比官方 TS SDK 快 3.0–8.3 倍**，輸出 byte-identical，對齊 **TOON spec v4.1**。
+**比 `toons` 最多快 7.6 倍**、**比官方 TS SDK 快 3.0–8.3 倍**，輸出 byte-identical，對齊 **TOON spec v4.4**。
 
 [English](https://github.com/coseto6125/etoon/blob/main/README.md)
 
@@ -335,10 +335,10 @@ Python dict → orjson.dumps → JSON bytes → sonic-rs (SIMD parse) → walk �
 
 ## 相容性
 
-對齊 **TOON spec v4.1**。輸出與官方 `toon-format/toon` TypeScript SDK 4.1
+對齊 **TOON spec v4.4**。輸出與官方 `toon-format/toon` TypeScript SDK 4.4
 **byte-identical**，並通過官方
-[`toon-format/spec`](https://github.com/toon-format/spec) encode fixture 套件
-**178/179** — 唯一未過的是需要非預設 `indentSize` 的案例（etoon 固定 2 spaces）。
+[`toon-format/spec`](https://github.com/toon-format/spec) encode fixture 套件（`v4.4.0`）
+**158/160**：未過的兩條都需要非預設的 `indentSize`（etoon 固定 2 spaces）。
 
 ### v4 收合形式
 
