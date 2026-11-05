@@ -109,7 +109,10 @@ fn run_file_mode(path: &str, output_path: Option<String>) -> ExitCode {
     write_output(&toon, output_path)
 }
 
-/// Peek first non-whitespace byte to decide path.
+/// Peek first non-whitespace byte to decide path: an object, an array or a string
+/// tries the whole buffer as one document, and log mode takes the rest. A bare
+/// number or literal stays as written: it is already valid TOON, and encoding
+/// would rewrite text such as a `1.10` version string to `1.1`.
 fn run_auto_stdin(output_path: Option<String>) -> ExitCode {
     let buf = match read_stdin() {
         Ok(b) => b,
@@ -117,13 +120,12 @@ fn run_auto_stdin(output_path: Option<String>) -> ExitCode {
     };
 
     let first = buf.iter().find(|b| !b.is_ascii_whitespace());
-    match first {
-        Some(b'{') | Some(b'[') => match _etoon::toon::encode(&buf) {
-            Ok(toon) => write_output(&toon, output_path),
-            Err(_) => run_log_from_bytes(&buf, output_path),
-        },
-        _ => run_log_from_bytes(&buf, output_path),
+    if matches!(first, Some(b'{' | b'[' | b'"')) {
+        if let Ok(toon) = _etoon::toon::encode(&buf) {
+            return write_output(&toon, output_path);
+        }
     }
+    run_log_from_bytes(&buf, output_path)
 }
 
 fn run_strict_stdin(output_path: Option<String>) -> ExitCode {
