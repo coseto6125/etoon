@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "etoon"
-path = "src/bin/etoon.rs"
+path = "src/bin/etoon/main.rs"
 required-features = []
 
 # default is empty so `cargo install etoon` builds the CLI binary without
@@ -33,6 +33,12 @@ ryu = "1.0.20"
 memchr = "2.7"
 
 
+[dev-dependencies]
+# Oracle for the `etoon hook claude` skip rules: the tests check the matchers against the
+# original regexes. The binary does not link it.
+regex = { version = "1.12", default-features = false, features = ["std", "unicode-perl"] }
+
+# panic stays `unwind`: `etoon hook claude` catches a panic to fail open.
 [profile.release]
 opt-level = 3
 lto = true

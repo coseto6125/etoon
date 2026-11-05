@@ -45,5 +45,16 @@ binding surfaces every variant as Python `ValueError`.
 
 Python caller → `etoon.dumps` (facade, Python truth) → `_etoon.dumps_bytes`
 (PyO3 adapter, options seam) → `toon::encode_with` (core module).
-The CLI binary (`src/bin/etoon.rs`) is a second adapter that uses pure Rust
+The CLI binary (`src/bin/etoon/main.rs`) is a second adapter that uses pure Rust
 defaults via `toon::encode`.
+
+The CLI's `hook claude` subcommand (`src/bin/etoon/hook.rs`) is a Claude Code
+`PreToolUse` hook, not an encoder adapter: it rewrites a Bash command so the
+command's output pipes into etoon, and it never encodes.
+
+| term | meaning |
+|---|---|
+| skip rule | one of eight checks (`src/bin/etoon/skip.rs`) that leave a command without `\| etoon` |
+| pre-rewriter | the `--pre` program; takes the command as its last argument, prints the new command |
+| status suffix | `; __etoon_rc=${PIPESTATUS[...]}; (exit $__etoon_rc)`: restores the command's exit status |
+| fail open | a runtime error (bad stdin, rtk or `--pre` failure, panic) prints nothing, or only the rewrites that finished, and exits 0; bad hook arguments exit 1 |

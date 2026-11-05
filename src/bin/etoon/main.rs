@@ -5,6 +5,10 @@
 //!   etoon input.json                 # file → stdout
 //!   etoon input.json -o output.toon  # file → file
 //!   etoon --strict                   # error on non-JSON (old behavior)
+//!   etoon hook claude [--pre CMD]    # Claude Code PreToolUse hook (see hook.rs)
+
+mod hook;
+mod skip;
 
 use std::env;
 use std::fs;
@@ -12,6 +16,14 @@ use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // `etoon hook claude` was an error before (a second positional argument), so a file
+    // named `hook` still encodes with `etoon hook`.
+    let os_args: Vec<_> = env::args_os().skip(1).collect();
+    if let [first, second, rest @ ..] = &os_args[..] {
+        if first == "hook" && second == "claude" {
+            return hook::main(rest.to_vec());
+        }
+    }
     let mut args = env::args().skip(1);
     let mut input_path: Option<String> = None;
     let mut output_path: Option<String> = None;
@@ -34,6 +46,7 @@ fn main() -> ExitCode {
                 println!("usage: etoon [INPUT] [-o OUTPUT] [--strict]");
                 println!("       command | etoon           # auto JSON/log");
                 println!("       etoon --strict            # error on non-JSON");
+                println!("       etoon hook claude [--pre CMD]  # Claude Code PreToolUse hook");
                 return ExitCode::SUCCESS;
             }
             _ if !a.starts_with('-') && input_path.is_none() => {

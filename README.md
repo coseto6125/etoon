@@ -187,6 +187,88 @@ reaches the conversation. etoon auto-detects JSON, mixed log, and plain text.
 Skip only for byte-exact diff or single-value lookups (1-2 lines).
 ````
 
+Or let a `PreToolUse` hook add the pipe for you. `etoon hook claude` appends
+`| etoon` to every Bash command, so no rule depends on the model remembering it.
+Add it to `~/.claude/settings.json` (or the project's `.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "etoon hook claude" }] }
+    ]
+  }
+}
+```
+
+The hook rewrites `CMD` to
+`CMD | etoon; __etoon_rc=${PIPESTATUS[${#PIPESTATUS[@]}-2]}; (exit $__etoon_rc)`.
+The suffix restores the exit status of the last pipeline element before etoon, so a
+failing command still reads as a failure. Trailing newlines and blank last lines are
+dropped first. The other `tool_input` fields (`description`, `timeout`,
+`run_in_background`) are kept, except where rtk sets them (see below).
+
+Limits of the rewrite:
+
+- The suffix needs **bash** (`PIPESTATUS`). Under zsh the status reads as 0.
+- `etoon` must be on the `PATH` of the Bash tool, or the output is lost.
+- Only the last pipeline of a compound command (`a; b`, `a && b`) goes through etoon.
+- `! CMD`, or `pipefail` set earlier in the session, changes the status that the
+  suffix cannot restore. A trailing `# comment` comments the suffix out (no encoding).
+
+The hook leaves the command without etoon when one of these rules hits:
+
+| # | Rule | Why |
+|---|------|-----|
+| 1 | The command already pipes into `etoon` | No double pipe |
+| 2 | It ends in `&`, `;` or `\` | Background job, syntax error, line continuation |
+| 3 | The last pipe segment of a line redirects output (`> f`, `>> f`) | The output goes to a file |
+| 4 | The command the pipe attaches to is a shell builtin (`cd`, `export`, `source`, ...), also after `&&`, `\|\|`, `;` or `&` | A pipe runs it in a subshell |
+| 5 | `git diff` or `diff` | Byte-exact output |
+| 6 | It asks for JSON (`--json`, `-o json`, `--format=json`, `{{json .}}`) | Byte-exact output |
+| 7 | It holds a heredoc (`<<`, not `<<<`) | The pipe would break the delimiter |
+| 8 | It mentions `pipefail` | The suffix reads one pipeline status |
+
+**rtk.** When [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, the hook runs
+`rtk hook claude` first and appends etoon to rtk's rewrite. Claude Code applies only
+one `updatedInput` per tool call, so register this hook instead of rtk's own hook,
+not next to it. The skip rules read the command before rtk rewrites it. Fields in
+rtk's `updatedInput` replace the same fields of the tool input; the rest stay. rtk
+gets 5 seconds.
+
+**`--pre CMD`** (also `--pre=CMD`, at most once). An external rewriter runs before rtk
+and etoon:
+
+- `CMD` splits on whitespace into a program and its arguments; there is no shell
+  quoting. The hook appends the Bash command as the last argument.
+- The rewriter prints the new command on stdout and exits 0. Trailing newlines are
+  dropped.
+- A non-zero exit, output that is empty, only blanks or not UTF-8, a start failure,
+  or a run longer than 2 seconds keeps the original command.
+- A command with a NUL byte, or one that starts with `-`, skips the rewriter.
+- When rtk fails or a skip rule hits, the rewritten command still goes out.
+
+```bash
+etoon hook claude --pre "my-rewriter --mode strict"
+# runs: my-rewriter --mode strict '<the Bash command>'
+```
+
+The hook discards the stderr of rtk and of the rewriter. On a timeout it kills the
+direct child only.
+
+**Fail open.** The hook never stops a command because of its own error:
+
+| Situation | stdout | Exit |
+|-----------|--------|------|
+| Rewrite | one JSON decision | 0 |
+| Not a Bash call, no command, empty or whitespace command, bad stdin JSON | nothing | 0 |
+| rtk fails (any non-zero exit, a timeout, bad JSON) | nothing, or the `--pre` rewrite | 0 |
+| A panic inside the hook | nothing | 0 |
+| Bad hook arguments | nothing (usage on stderr) | 1 |
+
+Claude Code runs the command after exit 1. `etoon hook claude --help` prints the usage.
+`etoon hook` with no `claude` still reads a file named `hook`.
+
 #### Cursor
 
 Add to `.cursor/rules/etoon.mdc`:
