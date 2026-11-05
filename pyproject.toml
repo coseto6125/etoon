@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "etoon"
 dynamic = ["version"]
-description = "Fast TOON (Token-Oriented Object Notation) encoder tracking spec v4.4. Matches the official TS SDK on the spec suite, up to 7.6x faster than toons."
+description = "Fast TOON (Token-Oriented Object Notation) encoder tracking spec v4.4. Matches the official TS SDK on the spec suite, up to 7.4x faster than toons."
 requires-python = ">=3.10"
 license = "Apache-2.0"
 readme = "README.md"
