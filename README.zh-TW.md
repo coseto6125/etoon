@@ -7,27 +7,27 @@
 
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
-**比 `toons` 最多快 7.6 倍**、**比官方 TS SDK 快 3.0–8.3 倍**，spec 套件上輸出 byte-identical，對齊 **TOON spec v4.4**。
+**比 `toons` 最多快 7.4 倍**、**比官方 TS SDK 快 2.9–8.7 倍**，spec 套件上輸出 byte-identical，對齊 **TOON spec v4.4**。
 
 [English](https://github.com/coseto6125/etoon/blob/main/README.md)
 
 ## 效能
 
-各種代表性 payload 的單次編碼時間（`etoon` = Python/PyO3，best-of-7 × 400 次）。
+各種代表性 payload 的單次編碼時間（`etoon` = Python/PyO3，best-of-7 × 2000 次）。
 `✓` = 輸出與 etoon byte-identical；`✗` = 該編碼器輸出不同 — 或偏離 spec（py-rtoon
 對整數值浮點輸出 `0.0`，spec 要求 `0`），或仍停在 spec v3.x、把 v4.0 的收合形式
 展開成巢狀區塊。
 
-| Payload（編碼）          | etoon   | toons           | py-rtoon        | @toon-format/toon 4.1 (TS) |
+| Payload（編碼）          | etoon   | toons           | py-rtoon        | @toon-format/toon 4.4 (TS) |
 |--------------------------|---------|-----------------|-----------------|----------------------------|
-| 1000 筆同構物件          | 171 µs  | 848 µs (5.0×✓)  | 772 µs (4.5×✗)  | 519 µs (3.0×✓)             |
-| 深層巢狀                 | 110 µs  | 272 µs (2.5×✓)  | 662 µs (6.0×✗)  | 611 µs (5.6×✓)             |
-| 1000 筆字串記錄          | 89 µs   | 674 µs (7.6×✓)  | 540 µs (6.1×✓)  | 640 µs (7.2×✓)             |
-| 500 筆混合物件           | 140 µs  | 680 µs (4.8×✓)  | 541 µs (3.9×✗)  | 1166 µs (8.3×✓)            |
-| 1000 筆巢狀欄位群組      | 190 µs  | 1103 µs (5.8×✗) | 953 µs (5.0×✗)  | 586 µs (3.1×✓)             |
-| 1000 筆 keyed 表格列     | 105 µs  | 679 µs (6.5×✗)  | 562 µs (5.4×✗)  | 603 µs (5.8×✓)             |
+| 1000 筆同構物件          | 181 µs  | 802 µs (4.4×✓)  | 846 µs (4.7×✗)  | 535 µs (3.0×✓)             |
+| 深層巢狀                 | 124 µs  | 302 µs (2.4×✓)  | 723 µs (5.8×✗)  | 674 µs (5.4×✓)             |
+| 1000 筆字串記錄          | 97 µs   | 714 µs (7.4×✓)  | 595 µs (6.1×✓)  | 633 µs (6.5×✓)             |
+| 500 筆混合物件           | 141 µs  | 708 µs (5.0×✓)  | 605 µs (4.3×✗)  | 1235 µs (8.7×✓)            |
+| 1000 筆巢狀欄位群組      | 209 µs  | 1166 µs (5.6×✗) | 1054 µs (5.0×✗) | 601 µs (2.9×✓)             |
+| 1000 筆 keyed 表格列     | 116 µs  | 731 µs (6.3×✗)  | 624 µs (5.4×✗)  | 588 µs (5.1×✓)             |
 
-**比所有其他編碼器快 2.5–8.3 倍**，且輸出 **byte-identical、符合 spec canonical**：
+**比所有其他編碼器快 2.4–8.7 倍**，且輸出 **byte-identical、符合 spec canonical**：
 六個 payload 全部逐位元組一致的只有官方 TS SDK。
 
 CLI（`… | etoon`）在此之上多了進程啟動 + pipe I/O — 適合 shell pipeline / LLM log，

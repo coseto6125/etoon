@@ -7,28 +7,28 @@
 
 Fast [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) encoder for Python, Rust, and CLI.
 
-**Up to 7.6× faster than `toons`**, **3.0–8.3× faster than the official TS SDK**, byte-identical output on the spec suite — tracking **TOON spec v4.4**.
+**Up to 7.4× faster than `toons`**, **2.9–8.7× faster than the official TS SDK**, byte-identical output on the spec suite — tracking **TOON spec v4.4**.
 
 [中文說明](https://github.com/coseto6125/etoon/blob/main/README.zh-TW.md)
 
 ## Performance
 
 Per-call encode time across representative payloads (`etoon` = Python/PyO3,
-best-of-7 × 400 calls). `✓` = output byte-identical to etoon; `✗` = the encoder
+best-of-7 × 2000 calls). `✓` = output byte-identical to etoon; `✗` = the encoder
 differs — either it deviates from the spec (py-rtoon emits `0.0` where the spec
 requires `0`) or it still implements spec v3.x and expands the v4.0 collapsing
 forms into nested blocks.
 
-| Payload (encode)         | etoon   | toons           | py-rtoon        | @toon-format/toon 4.1 (TS) |
+| Payload (encode)         | etoon   | toons           | py-rtoon        | @toon-format/toon 4.4 (TS) |
 |--------------------------|---------|-----------------|-----------------|----------------------------|
-| 1000 uniform objects     | 171 µs  | 848 µs (5.0×✓)  | 772 µs (4.5×✗)  | 519 µs (3.0×✓)             |
-| deep nested              | 110 µs  | 272 µs (2.5×✓)  | 662 µs (6.0×✗)  | 611 µs (5.6×✓)             |
-| 1000 string records      | 89 µs   | 674 µs (7.6×✓)  | 540 µs (6.1×✓)  | 640 µs (7.2×✓)             |
-| 500 mixed objects        | 140 µs  | 680 µs (4.8×✓)  | 541 µs (3.9×✗)  | 1166 µs (8.3×✓)            |
-| 1000 nested field groups | 190 µs  | 1103 µs (5.8×✗) | 953 µs (5.0×✗)  | 586 µs (3.1×✓)             |
-| 1000 keyed-tabular rows  | 105 µs  | 679 µs (6.5×✗)  | 562 µs (5.4×✗)  | 603 µs (5.8×✓)             |
+| 1000 uniform objects     | 181 µs  | 802 µs (4.4×✓)  | 846 µs (4.7×✗)  | 535 µs (3.0×✓)             |
+| deep nested              | 124 µs  | 302 µs (2.4×✓)  | 723 µs (5.8×✗)  | 674 µs (5.4×✓)             |
+| 1000 string records      | 97 µs   | 714 µs (7.4×✓)  | 595 µs (6.1×✓)  | 633 µs (6.5×✓)             |
+| 500 mixed objects        | 141 µs  | 708 µs (5.0×✓)  | 605 µs (4.3×✗)  | 1235 µs (8.7×✓)            |
+| 1000 nested field groups | 209 µs  | 1166 µs (5.6×✗) | 1054 µs (5.0×✗) | 601 µs (2.9×✓)             |
+| 1000 keyed-tabular rows  | 116 µs  | 731 µs (6.3×✗)  | 624 µs (5.4×✗)  | 588 µs (5.1×✓)             |
 
-**2.5–8.3× faster** than every other encoder, with **byte-identical,
+**2.4–8.7× faster** than every other encoder, with **byte-identical,
 spec-canonical** output: only the official TS SDK matches etoon byte-for-byte on
 all six payloads.
 
