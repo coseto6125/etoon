@@ -10,7 +10,7 @@ import orjson
 
 from etoon._etoon import dumps_bytes as _dumps_bytes
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 __all__ = ["dumps"]
 
 Delimiter = Literal[",", "\t", "|"]
