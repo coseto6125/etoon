@@ -2,11 +2,16 @@
 
 ## Test Fixtures
 
-`tests/fixtures/encode/*.json` (except `key-folding.json`) are copied from the
-[toon-format/spec](https://github.com/toon-format/spec) repository, licensed
-under the MIT License. They are the official language-agnostic encode fixture
-suite for TOON spec v4.1. No modifications have been made to the fixture
-contents.
+`tests/fixtures/encode/*.json` (except `key-folding.json` and
+`spec-v4.1-legacy.json`) are copied from the
+[toon-format/spec](https://github.com/toon-format/spec) repository at tag
+`v4.4.0`, licensed under the MIT License. They are the official
+language-agnostic encode fixture suite for TOON spec v4.4. No modifications
+have been made to the fixture contents.
+
+`spec-v4.1-legacy.json` holds the cases of the same suite at `v4.1.1` that
+`v4.4.0` no longer lists (MIT License), unchanged except that each name carries
+its source file.
 
 `key-folding.json` is etoon-local. It started from the
 [toons](https://github.com/alesanfra/toons) project by Alessandro Sanfratello

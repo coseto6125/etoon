@@ -1,7 +1,8 @@
 """
 Run the TOON spec fixtures against etoon.
 
-Encode fixtures are the official `toon-format/spec` suite (TOON spec v4.1).
+Encode fixtures are the official `toon-format/spec` suite (TOON spec v4.4.0).
+`spec-v4.1-legacy.json` keeps the v4.1.1 cases that the v4.4.0 suite dropped.
 `key-folding.json` is etoon-local: the spec dropped key folding in v4.0, so it
 guards etoon's own `fold_keys` extension plus the `@`/`$`/`#` sigil-prefix cases.
 See ATTRIBUTION.md. Each fixture file contains N test cases with (input, expected) pairs.
@@ -26,6 +27,7 @@ SUPPORTED_FIXTURES = {
     "whitespace.json",
     "delimiters.json",
     "key-folding.json",
+    "spec-v4.1-legacy.json",
 }
 
 

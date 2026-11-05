@@ -152,7 +152,12 @@ fn write_root<const DELIM: u8>(v: &Value, cfg: &Config, out: &mut String) {
                 write_array_suffix::<DELIM>(arr, 0, cfg, true, out);
             }
         }
-        _ => write_scalar::<DELIM>(v, cfg, out),
+        _ => match v.as_str() {
+            // Decoders strip a leading U+FEFF from the document, so a root string keeps
+            // it only inside quotes (§7.2, spec 4.1.2).
+            Some(s) if s.starts_with('\u{FEFF}') => write_quoted(s, cfg.escape_controls, out),
+            _ => write_scalar::<DELIM>(v, cfg, out),
+        },
     }
 }
 
@@ -1126,6 +1131,40 @@ mod tests {
         // sonic-rs parses this through f64 (precision lost at parse time), but
         // the output must stay an expanded integer string, not an exponent.
         assert_eq!(enc(r#"{"n":1e30}"#), "n: 1000000000000000000000000000000");
+    }
+
+    #[test]
+    fn test_write_root_string_leading_bom_is_quoted() {
+        assert_eq!(enc("\"\u{FEFF}8\""), "\"\u{FEFF}8\"");
+        assert_eq!(enc("\"8\u{FEFF}\""), "8\u{FEFF}");
+        // Only the document start loses a BOM: an object value keeps it unquoted.
+        assert_eq!(enc("{\"d\":\"\u{FEFF}x\"}"), "d: \u{FEFF}x");
+        // A BOM-only string and a double BOM keep every BOM inside the quotes.
+        assert_eq!(enc("\"\u{FEFF}\""), "\"\u{FEFF}\"");
+        assert_eq!(enc("\"\u{FEFF}\u{FEFF}x\""), "\"\u{FEFF}\u{FEFF}x\"");
+        // The first key of a root object is quoted by the key rules.
+        assert_eq!(enc("{\"\u{FEFF}k\":1}"), "\"\u{FEFF}k\": 1");
+        // A root array starts with its header, so its first item keeps the BOM unquoted.
+        assert_eq!(enc("[\"\u{FEFF}x\"]"), "[1]: \u{FEFF}x");
+    }
+
+    #[test]
+    fn test_write_root_string_leading_bom_keeps_config_escaping() {
+        // The quote forces an object value into quotes too, so its quoted form is the oracle.
+        let s = "\u{FEFF}a\\\"b\\\\c\\u0001d,e\\t|f";
+        for delimiter in *b",\t|" {
+            for escape_controls in [true, false] {
+                let cfg = Config {
+                    delimiter,
+                    escape_controls,
+                    ..Default::default()
+                };
+                let root = enc_with(&format!("\"{s}\""), &cfg);
+                let value = enc_with(&format!("{{\"d\":\"{s}\"}}"), &cfg);
+                assert!(root.starts_with("\"\u{FEFF}a"), "{root:?}");
+                assert_eq!(Some(root.as_str()), value.strip_prefix("d: "));
+            }
+        }
     }
 
     // ── Empty arrays (spec v3.1 canonical, default on) ──

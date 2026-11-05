@@ -1,0 +1,662 @@
+{
+  "version": "4.1",
+  "category": "encode",
+  "description": "Cases of the toon-format/spec v4.1.1 encode suite that the v4.4.0 suite no longer lists. Their expected output is unchanged under v4.4; etoon keeps them for coverage.",
+  "tests": [
+    {
+      "name": "arrays-nested: encodes nested arrays of primitives",
+      "input": {
+        "pairs": [
+          [
+            "a",
+            "b"
+          ],
+          [
+            "c",
+            "d"
+          ]
+        ]
+      },
+      "expected": "pairs[2]:\n  - [2]: a,b\n  - [2]: c,d",
+      "specSection": "9.2"
+    },
+    {
+      "name": "arrays-nested: encodes mixed-length inner arrays",
+      "input": {
+        "pairs": [
+          [
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ]
+      },
+      "expected": "pairs[2]:\n  - [1]: 1\n  - [2]: 2,3",
+      "specSection": "9.2"
+    },
+    {
+      "name": "arrays-nested: encodes complex nested structure",
+      "input": {
+        "user": {
+          "id": 123,
+          "name": "Ada",
+          "tags": [
+            "reading",
+            "gaming"
+          ],
+          "active": true,
+          "prefs": []
+        }
+      },
+      "expected": "user:\n  id: 123\n  name: Ada\n  tags[2]: reading,gaming\n  active: true\n  prefs: []",
+      "specSection": "8"
+    },
+    {
+      "name": "arrays-objects: uses list form for objects with nested values",
+      "input": {
+        "items": [
+          {
+            "id": 1,
+            "nested": {
+              "x": 1
+            }
+          },
+          {
+            "id": 2,
+            "nested": {
+              "y": 2
+            }
+          }
+        ]
+      },
+      "expected": "items[2]:\n  - id: 1\n    nested:\n      x: 1\n  - id: 2\n    nested:\n      y: 2",
+      "specSection": "9.4",
+      "note": "The nested column mixes key sets {x} and {y}, so it is not nested-uniform (§9.3), so the array uses list form"
+    },
+    {
+      "name": "arrays-objects: preserves field order in list items - array first",
+      "input": {
+        "items": [
+          {
+            "nums": [
+              1,
+              2,
+              3
+            ],
+            "name": "Ada"
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - nums[3]: 1,2,3\n    name: Ada",
+      "specSection": "10"
+    },
+    {
+      "name": "arrays-objects: preserves field order in list items - primitive first",
+      "input": {
+        "items": [
+          {
+            "name": "Ada",
+            "nums": [
+              1,
+              2,
+              3
+            ]
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - name: Ada\n    nums[3]: 1,2,3",
+      "specSection": "10"
+    },
+    {
+      "name": "arrays-objects: uses tabular form for nested uniform object arrays",
+      "input": {
+        "items": [
+          {
+            "users": [
+              {
+                "id": 1,
+                "name": "Ada"
+              },
+              {
+                "id": 2,
+                "name": "Bob"
+              }
+            ],
+            "status": "active"
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - users[2]{id,name}:\n      1,Ada\n      2,Bob\n    status: active",
+      "specSection": "10",
+      "note": "Tabular header on hyphen line with rows at depth +2 and sibling fields at depth +1"
+    },
+    {
+      "name": "arrays-objects: uses list form for objects with multiple array fields",
+      "input": {
+        "items": [
+          {
+            "nums": [
+              1,
+              2
+            ],
+            "tags": [
+              "a",
+              "b"
+            ],
+            "name": "test"
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - nums[2]: 1,2\n    tags[2]: a,b\n    name: test",
+      "specSection": "10"
+    },
+    {
+      "name": "arrays-objects: uses list form for objects with only array fields",
+      "input": {
+        "items": [
+          {
+            "nums": [
+              1,
+              2,
+              3
+            ],
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - nums[3]: 1,2,3\n    tags[2]: a,b",
+      "specSection": "10"
+    },
+    {
+      "name": "arrays-objects: encodes objects with empty arrays in list form",
+      "input": {
+        "items": [
+          {
+            "name": "Ada",
+            "data": []
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - name: Ada\n    data: []",
+      "specSection": "10"
+    },
+    {
+      "name": "arrays-objects: uses canonical encoding for multi-field list-item objects with tabular arrays",
+      "input": {
+        "items": [
+          {
+            "users": [
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              }
+            ],
+            "note": "x"
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - users[2]{id}:\n      1\n      2\n    note: x",
+      "specSection": "10",
+      "note": "Tabular header on hyphen line with rows at depth +2 and sibling fields at depth +1"
+    },
+    {
+      "name": "arrays-objects: uses canonical encoding for single-field list-item tabular arrays",
+      "input": {
+        "items": [
+          {
+            "users": [
+              {
+                "id": 1,
+                "name": "Ada"
+              },
+              {
+                "id": 2,
+                "name": "Bob"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - users[2]{id,name}:\n      1,Ada\n      2,Bob",
+      "specSection": "10",
+      "note": "Tabular header on hyphen line with rows at depth +2"
+    },
+    {
+      "name": "arrays-objects: places empty arrays on hyphen line when first",
+      "input": {
+        "items": [
+          {
+            "data": [],
+            "name": "x"
+          }
+        ]
+      },
+      "expected": "items[1]:\n  - data: []\n    name: x",
+      "specSection": "10"
+    },
+    {
+      "name": "arrays-objects: encodes empty object list items as bare hyphen",
+      "input": {
+        "items": [
+          "first",
+          "second",
+          {}
+        ]
+      },
+      "expected": "items[3]:\n  - first\n  - second\n  -",
+      "specSection": "10",
+      "note": "Empty object list items encode as a single \"-\" line at the list-item depth"
+    },
+    {
+      "name": "arrays-primitive: encodes string arrays inline",
+      "input": {
+        "tags": [
+          "reading",
+          "gaming"
+        ]
+      },
+      "expected": "tags[2]: reading,gaming",
+      "specSection": "9.1"
+    },
+    {
+      "name": "arrays-primitive: encodes number arrays inline",
+      "input": {
+        "nums": [
+          1,
+          2,
+          3
+        ]
+      },
+      "expected": "nums[3]: 1,2,3",
+      "specSection": "9.1"
+    },
+    {
+      "name": "arrays-primitive: quotes strings with structural meanings in arrays",
+      "input": {
+        "items": [
+          "[5]",
+          "- item",
+          "{key}"
+        ]
+      },
+      "expected": "items[3]: \"[5]\",\"- item\",\"{key}\"",
+      "specSection": "9.1"
+    },
+    {
+      "name": "delimiters: encodes nested arrays with pipe delimiter",
+      "input": {
+        "pairs": [
+          [
+            "a",
+            "b"
+          ],
+          [
+            "c",
+            "d"
+          ]
+        ]
+      },
+      "expected": "pairs[2|]:\n  - [2|]: a|b\n  - [2|]: c|d",
+      "options": {
+        "delimiter": "|"
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "delimiters: quotes strings containing tab delimiter",
+      "input": {
+        "items": [
+          "a",
+          "b\tc",
+          "d"
+        ]
+      },
+      "expected": "items[3\t]: a\t\"b\\tc\"\td",
+      "options": {
+        "delimiter": "\t"
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "delimiters: does not quote commas with pipe delimiter",
+      "input": {
+        "items": [
+          "a,b",
+          "c,d"
+        ]
+      },
+      "expected": "items[2|]: a,b|c,d",
+      "options": {
+        "delimiter": "|"
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "delimiters: quotes tabular values containing comma delimiter",
+      "input": {
+        "items": [
+          {
+            "id": 1,
+            "note": "a,b"
+          },
+          {
+            "id": 2,
+            "note": "c,d"
+          }
+        ]
+      },
+      "expected": "items[2]{id,note}:\n  1,\"a,b\"\n  2,\"c,d\"",
+      "options": {
+        "delimiter": ","
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "delimiters: does not quote commas in object values with tab delimiter",
+      "input": {
+        "note": "a,b"
+      },
+      "expected": "note: a,b",
+      "options": {
+        "delimiter": "\t"
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "delimiters: quotes nested array values containing tab delimiter",
+      "input": {
+        "pairs": [
+          [
+            "a",
+            "b\tc"
+          ]
+        ]
+      },
+      "expected": "pairs[1\t]:\n  - [2\t]: a\t\"b\\tc\"",
+      "options": {
+        "delimiter": "\t"
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "delimiters: preserves ambiguity quoting regardless of delimiter",
+      "input": {
+        "items": [
+          "true",
+          "42",
+          "-3.14"
+        ]
+      },
+      "expected": "items[3|]: \"true\"|\"42\"|\"-3.14\"",
+      "options": {
+        "delimiter": "|"
+      },
+      "specSection": "11"
+    },
+    {
+      "name": "objects-keyed: uses the active delimiter in keyed headers and entry-row cells",
+      "input": {
+        "servers": {
+          "alpha": {
+            "host": "a.example.com",
+            "port": 8080
+          },
+          "beta": {
+            "host": "b.example.com",
+            "port": 9090
+          }
+        }
+      },
+      "options": {
+        "delimiter": "|"
+      },
+      "expected": "servers[2:|]{host|port}:\n  alpha: a.example.com|8080\n  beta: b.example.com|9090",
+      "specSection": "9.5",
+      "note": "The keyed marker precedes the delimiter symbol: [2:|]"
+    },
+    {
+      "name": "objects: preserves key order in objects",
+      "input": {
+        "id": 123,
+        "name": "Ada",
+        "active": true
+      },
+      "expected": "id: 123\nname: Ada\nactive: true",
+      "specSection": "8"
+    },
+    {
+      "name": "objects: encodes null values in objects",
+      "input": {
+        "id": 123,
+        "value": null
+      },
+      "expected": "id: 123\nvalue: null",
+      "specSection": "8"
+    },
+    {
+      "name": "objects: quotes string value with leading space",
+      "input": {
+        "text": " padded "
+      },
+      "expected": "text: \" padded \"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "objects: quotes string value that looks like negative decimal",
+      "input": {
+        "v": "-7.5"
+      },
+      "expected": "v: \"-7.5\"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "objects: quotes key with brackets",
+      "input": {
+        "[index]": 5
+      },
+      "expected": "\"[index]\": 5",
+      "specSection": "7.3"
+    },
+    {
+      "name": "objects: quotes key with braces",
+      "input": {
+        "{key}": 5
+      },
+      "expected": "\"{key}\": 5",
+      "specSection": "7.3"
+    },
+    {
+      "name": "objects: quotes key with spaces",
+      "input": {
+        "full name": "Ada"
+      },
+      "expected": "\"full name\": Ada",
+      "specSection": "7.3"
+    },
+    {
+      "name": "objects: quotes key with leading hyphen",
+      "input": {
+        "-lead": 1
+      },
+      "expected": "\"-lead\": 1",
+      "specSection": "7.3"
+    },
+    {
+      "name": "objects: quotes key with leading and trailing spaces",
+      "input": {
+        " a ": 1
+      },
+      "expected": "\" a \": 1",
+      "specSection": "7.3"
+    },
+    {
+      "name": "objects: quotes CJK key",
+      "input": {
+        "名前": "x"
+      },
+      "expected": "\"名前\": x",
+      "specSection": "7.3"
+    },
+    {
+      "name": "objects: escapes newline in key",
+      "input": {
+        "line\nbreak": 1
+      },
+      "expected": "\"line\\nbreak\": 1",
+      "specSection": "7.1"
+    },
+    {
+      "name": "objects: escapes quotes in key",
+      "input": {
+        "he said \"hi\"": 1
+      },
+      "expected": "\"he said \\\"hi\\\"\": 1",
+      "specSection": "7.1"
+    },
+    {
+      "name": "objects: encodes constructor and prototype own properties as ordinary keys",
+      "input": {
+        "constructor": 1,
+        "prototype": 2
+      },
+      "expected": "constructor: 1\nprototype: 2",
+      "specSection": "15"
+    },
+    {
+      "name": "primitives: quotes string that looks like negative decimal",
+      "input": "-3.14",
+      "expected": "\"-3.14\"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: escapes newline in string",
+      "input": "line1\nline2",
+      "expected": "\"line1\\nline2\"",
+      "specSection": "7.1"
+    },
+    {
+      "name": "primitives: escapes tab in string",
+      "input": "tab\there",
+      "expected": "\"tab\\there\"",
+      "specSection": "7.1"
+    },
+    {
+      "name": "primitives: escapes carriage return in string",
+      "input": "return\rcarriage",
+      "expected": "\"return\\rcarriage\"",
+      "specSection": "7.1"
+    },
+    {
+      "name": "primitives: encodes string with U+0004 control character via \\uXXXX",
+      "input": {
+        "val": "a\u0004b"
+      },
+      "expected": "val: \"a\\u0004b\"",
+      "specSection": "7.1"
+    },
+    {
+      "name": "primitives: escapes backslash in string",
+      "input": "C:\\Users\\path",
+      "expected": "\"C:\\\\Users\\\\path\"",
+      "specSection": "7.1"
+    },
+    {
+      "name": "primitives: quotes string with array-like syntax",
+      "input": "[3]: x,y",
+      "expected": "\"[3]: x,y\"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: quotes single hyphen as object value",
+      "input": {
+        "marker": "-"
+      },
+      "expected": "marker: \"-\"",
+      "specSection": "7.2",
+      "note": "Single hyphen must be quoted to avoid list item ambiguity"
+    },
+    {
+      "name": "primitives: quotes string starting with hyphen as object value",
+      "input": {
+        "note": "- item"
+      },
+      "expected": "note: \"- item\"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: quotes single hyphen in array",
+      "input": {
+        "items": [
+          "-"
+        ]
+      },
+      "expected": "items[1]: \"-\"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: quotes leading-hyphen string in array",
+      "input": {
+        "tags": [
+          "a",
+          "- item",
+          "b"
+        ]
+      },
+      "expected": "tags[3]: a,\"- item\",b",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: quotes string with bracket notation",
+      "input": "[test]",
+      "expected": "\"[test]\"",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: encodes Chinese characters without quotes",
+      "input": "你好",
+      "expected": "你好",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: encodes emoji without quotes",
+      "input": "🚀",
+      "expected": "🚀",
+      "specSection": "7.2"
+    },
+    {
+      "name": "primitives: encodes large integer without exponent notation",
+      "input": 1000000,
+      "expected": "1000000",
+      "specSection": "2",
+      "note": "Within the canonical decimal range"
+    },
+    {
+      "name": "primitives: encodes repeating decimal with full precision",
+      "input": 0.3333333333333333,
+      "expected": "0.3333333333333333",
+      "specSection": "2"
+    },
+    {
+      "name": "primitives: quotes string equal to hash",
+      "input": "#",
+      "expected": "\"#\"",
+      "specSection": "7.2",
+      "note": "Comment marker at position 0 must be quoted"
+    },
+    {
+      "name": "whitespace: produces no trailing newline at end of output",
+      "input": {
+        "id": 123
+      },
+      "expected": "id: 123",
+      "specSection": "12"
+    }
+  ]
+}
