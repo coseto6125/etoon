@@ -7,7 +7,7 @@
 
 快速的 [TOON](https://github.com/toon-format/toon) (Token-Oriented Object Notation) 編碼器，支援 Python、Rust、CLI。
 
-**比 `toons` 最多快 7.6 倍**、**比官方 TS SDK 快 3.0–8.3 倍**，輸出 byte-identical，對齊 **TOON spec v4.4**。
+**比 `toons` 最多快 7.6 倍**、**比官方 TS SDK 快 3.0–8.3 倍**，spec 套件上輸出 byte-identical，對齊 **TOON spec v4.4**。
 
 [English](https://github.com/coseto6125/etoon/blob/main/README.md)
 
@@ -15,7 +15,7 @@
 
 各種代表性 payload 的單次編碼時間（`etoon` = Python/PyO3，best-of-7 × 400 次）。
 `✓` = 輸出與 etoon byte-identical；`✗` = 該編碼器輸出不同 — 或偏離 spec（py-rtoon
-對整數值浮點輸出 `0.0`，spec 要求 `0`），或仍停在 spec v3.x、把 v4.1 的收合形式
+對整數值浮點輸出 `0.0`，spec 要求 `0`），或仍停在 spec v3.x、把 v4.0 的收合形式
 展開成巢狀區塊。
 
 | Payload（編碼）          | etoon   | toons           | py-rtoon        | @toon-format/toon 4.1 (TS) |
@@ -335,10 +335,21 @@ Python dict → orjson.dumps → JSON bytes → sonic-rs (SIMD parse) → walk �
 
 ## 相容性
 
-對齊 **TOON spec v4.4**。輸出與官方 `toon-format/toon` TypeScript SDK 4.4
-**byte-identical**，並通過官方
+對齊 **TOON spec v4.4**。通過官方
 [`toon-format/spec`](https://github.com/toon-format/spec) encode fixture 套件（`v4.4.0`）
 **158/160**：未過的兩條都需要非預設的 `indentSize`（etoon 固定 2 spaces）。
+
+輸出與官方 `toon-format/toon` TypeScript SDK 4.4 **byte-identical**，只有三處不同：
+
+| 輸入                                     | etoon                         | TS SDK 4.4                    | Spec              |
+|------------------------------------------|-------------------------------|-------------------------------|-------------------|
+| 0 < \|n\| < 1e-6 或 \|n\| ≥ 1e21 的數字 | 一般小數，`0.0000001`         | 指數，`1e-7`                  | §2 兩者皆可       |
+| 超過 2^53、仍在 i64 或 u64 範圍內的整數 | 精確，`123456789012345678`    | 捨入，`123456789012345680`    | —                 |
+| `@`、`$`、`#` 開頭的 key                 | 不加引號，`#id: 1`            | 加引號，`"#id": 1`            | §7.3 要求加引號   |
+
+Sigil key 是 etoon 刻意的擴充（見 [Sigil 前綴 key](#sigil-前綴-key)）。spec decoder
+把 `#` 開頭的行當成註解：值是 scalar 的 `#` key 會被丟掉，值是物件或陣列的 `#` key
+可能讓整份文件解碼失敗。
 
 ### v4 收合形式
 
@@ -347,7 +358,7 @@ spec v4.0 新增兩種把巢狀壓平的形式，兩者都已實作：
 ```bash
 # 巢狀欄位群組（§9.3）— 同構的巢狀物件變成表頭欄位
 echo '[{"id":1,"customer":{"name":"Ada","country":"DK"},"total":99}]' | etoon
-# orders[1]{id,customer{name,country},total}:
+# [1]{id,customer{name,country},total}:
 #   1,Ada,DK,99
 
 # Keyed tabular（§9.5）— 值為同構物件的物件變成帶 key 的表格
@@ -370,6 +381,10 @@ decode 不相容。
 ## Sigil 前綴 key（`@`、`$`、`#`）
 
 以 `@`、`$`、`#` 開頭的 key 視為合法 identifier — **不需要加引號**。原生支援以下生態系：
+
+> **注意：** 這偏離 spec §7.3（該條要求這類 key 加引號）。輸出是給 LLM 讀的。TOON spec
+> decoder 把 `#` 開頭的行當成註解（§5.1）：值是 scalar 的 `#` key 會被丟掉，值是物件或
+> 陣列的 `#` key 可能讓整份文件解碼失敗。
 
 | 前綴  | 生態系                                               | 常見 key                                 |
 |-------|------------------------------------------------------|------------------------------------------|

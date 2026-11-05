@@ -2,7 +2,8 @@
 Run the TOON spec fixtures against etoon.
 
 Encode fixtures are the official `toon-format/spec` suite (TOON spec v4.4.0).
-`spec-v4.1-legacy.json` keeps the v4.1.1 cases that the v4.4.0 suite dropped.
+`spec-v4.1-legacy.json` keeps the v4.1.1 cases whose input, options or expected
+output the v4.4.0 suite no longer contains.
 `key-folding.json` is etoon-local: the spec dropped key folding in v4.0, so it
 guards etoon's own `fold_keys` extension plus the `@`/`$`/`#` sigil-prefix cases.
 See ATTRIBUTION.md. Each fixture file contains N test cases with (input, expected) pairs.
@@ -39,10 +40,13 @@ def _collect_cases():
         data = orjson.loads(fixture_file.read_bytes())
         for test in data["tests"]:
             opts = test.get("options") or {}
-            # Skip tests requiring non-default indent; we hardcode 2-space.
             # `indent` is the pre-v3.3 spelling, kept for the local fixture.
-            if opts.get("indentSize", opts.get("indent", 2)) != 2:
-                continue
+            indent = opts.get("indentSize", opts.get("indent", 2))
+            marks = (
+                pytest.mark.skip(reason=f"etoon hardcodes indentSize 2, case needs {indent}")
+                if indent != 2
+                else ()
+            )
             kwargs = {}
             if "delimiter" in opts:
                 kwargs["delimiter"] = opts["delimiter"]
@@ -56,6 +60,7 @@ def _collect_cases():
                     test["expected"],
                     kwargs,
                     id=f"{fixture_file.stem}::{test['name']}",
+                    marks=marks,
                 )
             )
     return cases

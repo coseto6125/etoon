@@ -1,7 +1,7 @@
 {
   "version": "4.1",
   "category": "encode",
-  "description": "Cases of the toon-format/spec v4.1.1 encode suite that the v4.4.0 suite no longer lists. Their expected output is unchanged under v4.4; etoon keeps them for coverage.",
+  "description": "Cases of the toon-format/spec v4.1.1 encode suite whose input, options or expected output the v4.4.0 suite no longer contains: 50 removed, 6 rewritten under the same name. Their expected output is unchanged under v4.4; etoon keeps them for coverage.",
   "tests": [
     {
       "name": "arrays-nested: encodes nested arrays of primitives",
